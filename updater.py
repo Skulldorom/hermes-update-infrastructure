@@ -102,9 +102,65 @@ def _build_subdomain_table(data: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _build_cross_reference_section(data: dict) -> str:
+    """Generate the Cross-Reference Findings section."""
+    cross_ref = data.get("cross_ref")
+
+    if cross_ref is None:
+        return "*(Cross-reference skipped — no data available)*\n"
+
+    if not cross_ref.get("entities_dir_found", False):
+        return (
+            "*(Cross-reference skipped — entity pages directory not found.*\n"
+            "*Create `entities/<name>.md` files with YAML frontmatter to enable checks.)*\n"
+        )
+
+    missing = cross_ref.get("missing_entity_pages", [])
+    ip_drift = cross_ref.get("ip_drift", [])
+    orphaned = cross_ref.get("orphaned_entity_pages", [])
+    unmapped_servers = cross_ref.get("unmapped_servers", [])
+
+    if not missing and not ip_drift and not orphaned and not unmapped_servers:
+        return "✅ All clear — no issues found\n"
+
+    lines: list[str] = []
+
+    if missing:
+        lines.append("⚠️ New services without entity pages:")
+        for svc in missing:
+            href = svc.get("href", "")
+            href_part = f" (href: {href})" if href else ""
+            lines.append(f"  - {svc['name']}{href_part} — no entity page found")
+        lines.append("")
+
+    if ip_drift:
+        lines.append("⚠️ IP drift detected:")
+        for item in ip_drift:
+            lines.append(
+                f"  - {item['name']}: siteMonitor={item['site_monitor']},"
+                f" entity ip={item['entity_ip']} (MISMATCH)"
+            )
+        lines.append("")
+
+    if orphaned:
+        lines.append("ℹ️ Orphaned entity pages (not in homepage):")
+        for page in orphaned:
+            lines.append(f"  - {page}")
+        lines.append("")
+
+    if unmapped_servers:
+        lines.append("⚠️ Unmapped server fields:")
+        for item in unmapped_servers:
+            lines.append(f"  - {item['name']}: server=`{item['server']}` — no matching entity")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
 AUTO_SECTION_TEMPLATES = {
     "service_groups": _build_service_groups,
     "subdomains": _build_subdomain_table,
+    "cross_reference": _build_cross_reference_section,
 }
 
 MARKER_START = "<!-- HOMEPAGE_AUTO:"
@@ -256,6 +312,14 @@ def _generate_full_page(data: dict) -> str:
         f"{MARKER_START} subdomains -->",
         _build_subdomain_table(data),
         f"{MARKER_END} subdomains -->",
+        "",
+        "---",
+        "",
+        "## Cross-Reference Findings",
+        "",
+        f"{MARKER_START} cross_reference -->",
+        _build_cross_reference_section(data),
+        f"{MARKER_END} cross_reference -->",
         "",
         "---",
         "",
