@@ -131,27 +131,43 @@ def _build_cross_reference_section(data: dict) -> str:
             href = svc.get("href", "")
             href_part = f" (href: {href})" if href else ""
             lines.append(f"  - {svc['name']}{href_part} — no entity page found")
+            lines.append(
+                f'    → Run `/update-infrastructure create "{svc["name"]}"` to scaffold one'
+            )
         lines.append("")
 
     if ip_drift:
         lines.append("⚠️ IP drift detected:")
         for item in ip_drift:
             lines.append(
-                f"  - {item['name']}: siteMonitor={item['site_monitor']},"
-                f" entity ip={item['entity_ip']} (MISMATCH)"
+                f"  - {item['name']}: siteMonitor=`{item['site_monitor']}`,"
+                f" entity ip=`{item['entity_ip']}` (MISMATCH)"
             )
+            lines.append(
+                f'    → Run `/update-infrastructure fix-ip "{item["name"]}"` to repair'
+            )
+        if len(ip_drift) > 1:
+            lines.append("    → Run `/update-infrastructure fix all` to repair all at once")
         lines.append("")
 
     if orphaned:
         lines.append("ℹ️ Orphaned entity pages (not in homepage):")
         for page in orphaned:
             lines.append(f"  - {page}")
+        lines.append("  → Run `/update-infrastructure cleanup` for details")
         lines.append("")
 
     if unmapped_servers:
         lines.append("⚠️ Unmapped server fields:")
         for item in unmapped_servers:
-            lines.append(f"  - {item['name']}: server=`{item['server']}` — no matching entity")
+            suggestions = item.get("suggestions", [])
+            suggestion_str = ""
+            if suggestions:
+                quoted = ", ".join(f"`{s}`" for s in suggestions)
+                suggestion_str = f" — did you mean {quoted}?"
+            lines.append(
+                f"  - {item['name']}: server=`{item['server']}`{suggestion_str}"
+            )
         lines.append("")
 
     return "\n".join(lines)

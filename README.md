@@ -16,10 +16,13 @@ hermes plugins enable update-infrastructure
 
 ## Usage
 
-Type `/update-infrastructure` in any Hermes session — optionally followed by extra context:
+Type `/update-infrastructure` (or the short aliases `/update-infra` / `/sync-infra`) in any Hermes session — optionally followed by an inline command or extra context:
 
 ```
-/update-infrastructure also check if Bento PDF has an entity page
+/update-infrastructure
+/update-infra create "Bento PDF"
+/sync-infra fix all
+/update-infrastructure status
 ```
 
 The plugin will:
@@ -31,14 +34,44 @@ The plugin will:
    - **Subdomain Table** — complete subdomain → service → URL → monitor mapping
    - **Cross-Reference Findings** — entity page gaps, IP drift, orphaned pages, unmapped server fields
 4. Log the sync to `log.md`
-5. Return a sync report that includes cross-reference findings and any extra instructions you supplied
+5. Return a sync report with cross-reference findings, elapsed time, and the result of any inline command
 
-### Extra instructions
+### Inline commands
 
-Text typed after the command is captured and appended to the sync report so you (or downstream processing) can see it:
+Text typed after the command is parsed for known intents and acted on. Unrecognised text is echoed as before.
+
+| Command | Action |
+|---------|--------|
+| `create "Service Name"` | Scaffold a new `entities/<slug>.md` with sensible defaults |
+| `create-entity "Service Name"` | Same as above |
+| `fix all` | Apply all IP drift fixes found in this sync |
+| `fix-ip "Service Name"` | Fix the `ip` field for one specific service |
+| `fix-ip "Service Name" --dry-run` | Show what would change, without writing |
+| `check "Service Name"` | Deep-check one service across homepage, entity page, and cross-ref |
+| `cleanup` | List orphaned entity pages with removal instructions |
+| `status` | Return just the cross-reference summary (skips wiki update) |
+| *(anything else)* | Echoed as extra context — current behaviour |
+
+Commands are **case-insensitive** and match on prefix/keyword, not exact string.
+
+### Examples
 
 ```
-/update-infrastructure investigate why AdGuard is showing the wrong IP
+# Scaffold a missing entity page
+/update-infrastructure create "Bento PDF"
+
+# Fix an IP mismatch (dry-run first)
+/update-infrastructure fix-ip "AdGuard Primary" --dry-run
+/update-infrastructure fix-ip "AdGuard Primary"
+
+# Fix every IP-drift at once
+/update-infrastructure fix all
+
+# Deep-check one service
+/update-infrastructure check "Bento PDF"
+
+# Status only (no wiki update)
+/update-infrastructure status
 ```
 
 ### Sync Rules
@@ -69,10 +102,57 @@ The plugin then flags:
 
 | Check | Description |
 |-------|-------------|
-| **Missing entity pages** | Services in homepage that have no `entities/<slug>.md` |
+| **Missing entity pages** | Services in homepage that have no `entities/<slug>.md` (generic infra names filtered) |
 | **IP drift** | Services where `siteMonitor` URL contains an IP that differs from the entity `ip` field |
-| **Orphaned entity pages** | Entity pages whose slug matches no service in homepage (listed for review, never deleted) |
-| **Unmapped server fields** | Services with a `server:` value that does not map to any known entity host or type |
+| **Orphaned entity pages** | Entity pages whose slug matches no service in homepage (personal devices excluded) |
+| **Unmapped server fields** | Services with a `server:` value that does not map to any entity, with fuzzy suggestions |
+
+### Noise filtering
+
+The cross-reference output is filtered to surface only actionable findings:
+
+- **Generic infra names** (e.g. "Proxmox", "Nginx", "Synology", "Authentik") are not reported as missing entity pages — they are platform/stack labels, not specific hosts.
+- **Personal device / person entity pages** (those with `type: phone`, `type: tablet`, `type: person`, etc.) are excluded from orphaned-page reports.
+- **Unmapped server aliases** include fuzzy suggestions — e.g. `server: nas` → "did you mean `thehoard-nas`?".
+
+Extend the generic-name list via the `NOISE_FILTER_NAMES` env var (comma-separated).
+
+### Scaffolding entity pages
+
+When a genuinely new service is detected the sync report includes an actionable hint:
+
+```
+⚠️ Bento PDF — no entity page found
+    → Run `/update-infrastructure create "Bento PDF"` to scaffold one
+```
+
+The created page includes:
+
+```yaml
+---
+title: Bento PDF
+created: 2025-01-01
+updated: 2025-01-01
+type: container
+status: active
+ip: 192.168.0.12   # extracted from siteMonitor or href
+---
+```
+
+### IP drift repair
+
+When IP drift is detected the sync report includes a repair hint:
+
+```
+⚠️ AdGuard Primary: siteMonitor=`http://192.168.0.2`, entity ip=`192.168.0.8` (MISMATCH)
+    → Run `/update-infrastructure fix-ip "AdGuard Primary"` to repair
+```
+
+Use `--dry-run` to preview the change before writing:
+
+```
+/update-infrastructure fix-ip "AdGuard Primary" --dry-run
+```
 
 If the `entities/` directory does not exist the cross-reference step is skipped silently.
 
@@ -88,6 +168,7 @@ If the `entities/` directory does not exist the cross-reference step is skipped 
 |----------------------|---------|-------------|
 | `WIKI_PATH` | `~/wiki` | Root of your wiki directory |
 | `SUBDOMAIN_PATTERNS` | *(see below)* | Comma-separated list of subdomain extraction regexes |
+| `NOISE_FILTER_NAMES` | *(see below)* | Comma-separated extra generic names to filter from missing-entity reports |
 
 ### `SUBDOMAIN_PATTERNS`
 
@@ -97,10 +178,23 @@ The default pattern extracts subdomains from `*.skulldorom.xyz` and `*.skulldoro
 export SUBDOMAIN_PATTERNS='https?://([a-z0-9-]+)\.skulldorom\.(xyz|com),https?://([a-z0-9-]+)\.example\.net'
 ```
 
+### `NOISE_FILTER_NAMES`
+
+Comma-separated list of additional service names to treat as generic infrastructure. Names are slugified before comparison.
+
+```bash
+export NOISE_FILTER_NAMES='my-custom-platform,another-stack-name'
+```
+
 ## How It Works
 
 ```
-/update-infrastructure [extra instructions]
+/update-infrastructure [inline command]
+      │
+      ▼
+parse inline command (intent)
+      │
+      ├─ status? → cross-ref only, return immediately
       │
       ▼
 git pull homepage repo
@@ -109,13 +203,19 @@ git pull homepage repo
 parse services.yaml ──→  services + subdomains
       │
       ▼
-load entities/*.md ──→ cross-reference checks
+load entities/*.md ──→ noise-filtered cross-reference checks
       │
       ▼
 diff wiki page ──→ add/update/skip auto sections
       │
       ▼
-write page + log.md ──→ report back (includes cross-ref + extra instructions)
+write page + log.md
+      │
+      ▼
+execute intent (create / fix-ip / fix all / check / cleanup)
+      │
+      ▼
+report back (cross-ref findings with action hints + elapsed time)
 ```
 
 ## License
