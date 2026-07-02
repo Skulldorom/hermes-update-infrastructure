@@ -1,5 +1,5 @@
 name: update-infrastructure
 version: 1.0.0
 description: "/update-infrastructure — sync homelab wiki from homepage dashboard config"
-author: Adam (Skulldorom) + Hermes Coder Agent
+author: Skulldorom + Hermes Coder Agent
 provides_hooks: []
