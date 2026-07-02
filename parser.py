@@ -4,6 +4,7 @@ import os
 import re
 import subprocess
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -15,6 +16,28 @@ REPO_CACHE = Path(tempfile.gettempdir()) / "hermes-homepage-sync"
 # Default subdomain patterns — each pattern must use group(1) to capture the subdomain label.
 # Override by setting SUBDOMAIN_PATTERNS to a comma-separated list of regex strings.
 _DEFAULT_SUBDOMAIN_PATTERNS = [r"https?://([a-z0-9-]+)\.skulldorom\.(xyz|com)"]
+
+# Default set of generic infrastructure/platform names that are NOT specific hosts.
+# Services whose slugified name matches one of these are filtered from "missing entity pages"
+# unless a matching entity page already exists for that name.
+# Extend via the NOISE_FILTER_NAMES env var (comma-separated list).
+_DEFAULT_GENERIC_INFRA_NAMES: frozenset[str] = frozenset({
+    "synology", "glances", "dozzle", "proxmox", "nginx", "authentik",
+    "traefik", "caddy", "haproxy", "portainer", "watchtower", "homepage",
+    "grafana", "prometheus", "loki", "influxdb", "telegraf", "netdata",
+    "unifi", "pihole", "adguard-home", "adguardhome", "wireguard", "tailscale",
+    "docker", "kubernetes", "k8s", "vaultwarden", "bitwarden",
+    "nextcloud", "jellyfin", "plex", "emby", "sonarr", "radarr",
+    "lidarr", "readarr", "prowlarr", "sabnzbd", "qbittorrent", "transmission",
+    "overseerr", "tautulli", "uptime-kuma", "changedetection",
+    "gitea", "forgejo", "gitlab", "immich", "photoprism", "paperless-ngx", "paperless",
+})
+
+# Frontmatter ``type`` values that indicate personal devices / people (not services).
+# Entity pages with these types are silently excluded from orphaned-page reports.
+_PERSONAL_DEVICE_TYPES: frozenset[str] = frozenset({
+    "person", "people", "phone", "tablet", "device", "mobile", "laptop",
+})
 
 
 def _parse_yaml(path: Path) -> dict:
@@ -146,6 +169,62 @@ def _slugify(name: str) -> str:
     return re.sub(r"[^a-z0-9-]", "", slug)
 
 
+def _get_generic_infra_names() -> frozenset[str]:
+    """Return the set of generic infra names to filter from missing-entity reports.
+
+    Reads the ``NOISE_FILTER_NAMES`` env var for additional names (comma-separated).
+    """
+    env_val = os.environ.get("NOISE_FILTER_NAMES", "").strip()
+    if env_val:
+        extra = frozenset(_slugify(n.strip()) for n in env_val.split(",") if n.strip())
+        return _DEFAULT_GENERIC_INFRA_NAMES | extra
+    return _DEFAULT_GENERIC_INFRA_NAMES
+
+
+def _is_personal_device_entity(entity: dict) -> bool:
+    """Return True when the entity page represents a personal device or person.
+
+    Checks the ``type`` field and ``tags`` list in the frontmatter.
+    """
+    if str(entity.get("type", "")).lower() in _PERSONAL_DEVICE_TYPES:
+        return True
+    tags = entity.get("tags", [])
+    if isinstance(tags, list):
+        return any(str(t).lower() in _PERSONAL_DEVICE_TYPES for t in tags)
+    return False
+
+
+def _suggest_server_match(server: str, entity_pages: dict) -> list[str]:
+    """Return entity slugs that contain *server* as a substring.
+
+    Used to generate "Did you mean…?" suggestions for unmapped server fields.
+    """
+    server_slug = _slugify(str(server))
+    if not server_slug:
+        return []
+    return sorted(slug for slug in entity_pages if server_slug in slug)
+
+
+def _extract_ip_from_url(url: str) -> str | None:
+    """Extract the first IPv4 address found in a URL string, or None."""
+    if not url:
+        return None
+    m = re.search(r"https?://(\d{1,3}(?:\.\d{1,3}){3})", url)
+    return m.group(1) if m else None
+
+
+def _simple_diff(original: str, updated: str) -> str:
+    """Return a minimal line-level diff between two strings."""
+    orig_lines = original.splitlines()
+    new_lines = updated.splitlines()
+    diff_lines: list[str] = []
+    for old_line, new_line in zip(orig_lines, new_lines):
+        if old_line != new_line:
+            diff_lines.append(f"- {old_line}")
+            diff_lines.append(f"+ {new_line}")
+    return "\n".join(diff_lines)
+
+
 def _parse_frontmatter(path: Path) -> dict:
     """Parse YAML frontmatter (--- delimited) from a markdown file."""
     try:
@@ -200,18 +279,21 @@ def cross_reference(data: dict, entity_pages: dict | None) -> dict:
         ``entities_dir_found`` (bool)
             False when *entity_pages* is ``None``.
         ``missing_entity_pages`` (list[dict])
-            Services with no matching entity page.
+            Services with no matching entity page (generic infra names filtered out).
         ``ip_drift`` (list[dict])
             Services where the siteMonitor IP differs from the entity ``ip``.
         ``orphaned_entity_pages`` (list[str])
-            Entity page slugs whose name does not match any homepage service.
+            Entity page slugs whose name does not match any homepage service
+            (personal-device / person pages filtered out).
         ``unmapped_servers`` (list[dict])
-            Services whose ``server:`` field does not map to any entity.
+            Services whose ``server:`` field does not map to any entity, with
+            fuzzy ``suggestions`` for likely matches.
     """
     if entity_pages is None:
         return {"entities_dir_found": False}
 
     services = data.get("services", [])
+    generic_names = _get_generic_infra_names()
 
     # Build a set of service slugs for fast lookup
     service_slugs = {_slugify(svc["name"]) for svc in services}
@@ -236,7 +318,10 @@ def cross_reference(data: dict, entity_pages: dict | None) -> dict:
         entity = entity_pages.get(slug)
 
         if entity is None:
-            missing_entity_pages.append({"name": svc["name"], "href": svc.get("href", "")})
+            # Skip well-known generic infrastructure names — they are stack/type
+            # labels, not specific hosts, so a missing entity page is expected.
+            if slug not in generic_names:
+                missing_entity_pages.append({"name": svc["name"], "href": svc.get("href", "")})
         else:
             # IP drift: compare siteMonitor URL IP against entity page ip field
             entity_ip = entity.get("ip")
@@ -250,16 +335,22 @@ def cross_reference(data: dict, entity_pages: dict | None) -> dict:
                         "entity_ip": str(entity_ip),
                     })
 
-        # Unmapped server field
+        # Unmapped server field — add fuzzy suggestions
         server = svc.get("server")
         if server and _slugify(str(server)) not in known_hosts:
-            unmapped_servers.append({"name": svc["name"], "server": server})
+            suggestions = _suggest_server_match(server, entity_pages)
+            unmapped_servers.append({
+                "name": svc["name"],
+                "server": server,
+                "suggestions": suggestions,
+            })
 
-    # Orphaned entity pages: slugs not matched by any service slug
+    # Orphaned entity pages: slugs not matched by any service slug.
+    # Personal device / people pages are silently excluded.
     orphaned = [
         f"entities/{slug}.md"
-        for slug in entity_pages
-        if slug not in service_slugs
+        for slug, entity in entity_pages.items()
+        if slug not in service_slugs and not _is_personal_device_entity(entity)
     ]
 
     return {
@@ -269,6 +360,133 @@ def cross_reference(data: dict, entity_pages: dict | None) -> dict:
         "orphaned_entity_pages": sorted(orphaned),
         "unmapped_servers": unmapped_servers,
     }
+
+
+def scaffold_entity_page(
+    wiki_root: Path,
+    name: str,
+    href: str = "",
+    site_monitor: str = "",
+    server: str = "",
+) -> dict:
+    """Scaffold a new entity page for a service that has no existing page.
+
+    Args:
+        wiki_root: Root of the wiki directory.
+        name: Human-readable service name (e.g. "Bento PDF").
+        href: Service URL (used to extract IP if *site_monitor* has none).
+        site_monitor: siteMonitor URL (used to extract IP).
+        server: server field value from homepage (used to populate ``host``).
+
+    Returns:
+        A dict with keys:
+
+        ``created`` (bool)
+            True if a new file was written.
+        ``path`` (str)
+            Absolute path to the entity page.
+        ``slug`` (str, only when created)
+            The slugified filename stem.
+        ``reason`` (str, only when not created)
+            Why the file was not created.
+    """
+    slug = _slugify(name)
+    entities_dir = wiki_root / "entities"
+    entities_dir.mkdir(parents=True, exist_ok=True)
+
+    page_path = entities_dir / f"{slug}.md"
+    if page_path.exists():
+        return {"created": False, "path": str(page_path), "reason": "already exists"}
+
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    ip = _extract_ip_from_url(site_monitor) or _extract_ip_from_url(href)
+
+    fm_lines = [
+        "---",
+        f"title: {name}",
+        f"created: {today}",
+        f"updated: {today}",
+        "type: container",
+        "status: active",
+    ]
+    if ip:
+        fm_lines.append(f"ip: {ip}")
+    if server:
+        fm_lines.append(f"host: {_slugify(str(server))}")
+    fm_lines += [
+        "---",
+        "",
+        f"# {name}",
+        "",
+        "> Auto-scaffolded by `/update-infrastructure`.",
+        "",
+    ]
+
+    page_path.write_text("\n".join(fm_lines))
+    return {"created": True, "path": str(page_path), "slug": slug}
+
+
+def fix_entity_ip(
+    wiki_root: Path,
+    name: str,
+    new_ip: str,
+    dry_run: bool = False,
+) -> dict:
+    """Patch the ``ip`` field in an entity page to *new_ip*.
+
+    Args:
+        wiki_root: Root of the wiki directory.
+        name: Human-readable service name matching the entity slug.
+        new_ip: The corrected IP address to write.
+        dry_run: When True, compute the diff but do not write to disk.
+
+    Returns:
+        A dict with keys:
+
+        ``fixed`` (bool)
+            True if the repair succeeded (or would succeed in dry-run mode).
+        ``dry_run`` (bool)
+            Mirrors the *dry_run* argument.
+        ``diff`` (str, only when dry_run=True)
+            Line-level diff showing what would change.
+        ``path`` (str, only when fixed=True and dry_run=False)
+            Path to the entity page that was written.
+        ``reason`` (str, only when fixed=False)
+            Why the repair failed.
+    """
+    slug = _slugify(name)
+    page_path = wiki_root / "entities" / f"{slug}.md"
+
+    if not page_path.exists():
+        return {"fixed": False, "dry_run": dry_run, "reason": f"entity page not found: entities/{slug}.md"}
+
+    original = page_path.read_text()
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    ip_pattern = re.compile(r"^(ip:\s*).*$", re.MULTILINE)
+    updated_pattern = re.compile(r"^(updated:\s*).*$", re.MULTILINE)
+
+    if ip_pattern.search(original):
+        updated = ip_pattern.sub(rf"\g<1>{new_ip}", original)
+    else:
+        # Insert ip field just before the closing --- of the frontmatter
+        end_fm = original.find("---", 3)
+        if end_fm == -1:
+            return {"fixed": False, "dry_run": dry_run, "reason": "could not locate frontmatter closing ---"}
+        updated = original[:end_fm] + f"ip: {new_ip}\n" + original[end_fm:]
+
+    if updated_pattern.search(updated):
+        updated = updated_pattern.sub(rf"\g<1>{today}", updated)
+
+    if dry_run:
+        return {
+            "fixed": True,
+            "dry_run": True,
+            "diff": _simple_diff(original, updated),
+        }
+
+    page_path.write_text(updated)
+    return {"fixed": True, "dry_run": False, "path": str(page_path)}
 
 
 def parse_all(config_dir: Path) -> dict:
