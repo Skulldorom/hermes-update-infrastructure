@@ -6,20 +6,13 @@ Hermes Agent plugin — `/update-infrastructure` slash command. Syncs your homel
 
 ```bash
 git clone https://github.com/Skulldorom/hermes-update-infrastructure.git \
-  ~/.hermes/profiles/coder/plugins/update-infrastructure/
-
-hermes -p coder plugins enable update-infrastructure
-# /reset or restart your session
-```
-
-Or for the default profile:
-
-```bash
-git clone https://github.com/Skulldorom/hermes-update-infrastructure.git \
   ~/.hermes/plugins/update-infrastructure/
 
 hermes plugins enable update-infrastructure
+# /reset or restart your session
 ```
+
+> Using a named profile? Clone into `~/.hermes/profiles/<name>/plugins/` and run `hermes -p <name> plugins enable update-infrastructure`.
 
 ## Usage
 
