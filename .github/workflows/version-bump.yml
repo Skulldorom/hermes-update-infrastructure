@@ -77,12 +77,17 @@ jobs:
           sed -i "s/^version:.*/version: $NEW_VERSION/" plugin.yaml
           echo "Updated plugin.yaml to version $NEW_VERSION"
 
-      - name: Commit and tag new version
+      - name: Update README.md version badge
+        run: |
+          NEW_VERSION="${{ steps.new_version.outputs.new }}"
+          sed -i "s|!\[Version\](https://img\.shields\.io/badge/version-[^-]*-blue)|![Version](https://img.shields.io/badge/version-$NEW_VERSION-blue)|" README.md
+          echo "Updated README.md badge to version $NEW_VERSION"
+
+      - name: Commit new version
         run: |
           NEW_VERSION="${{ steps.new_version.outputs.new }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add plugin.yaml
+          git add plugin.yaml README.md
           git commit -m "chore: bump version to $NEW_VERSION [skip ci]"
-          git tag "v$NEW_VERSION"
-          git push origin HEAD:main --follow-tags
+          git push origin HEAD:main
