@@ -20,55 +20,55 @@ from pathlib import Path
 
 _COLOURS = {
     "infrastructure": {
-        "bg": "#ede8f5",
-        "border": "#7c6f9f",
-        "header": "#7c6f9f",
+        "bg": "#1e1b2e",
+        "border": "#8b7ab8",
+        "header": "#6d5aa3",
         "header_text": "#ffffff",
-        "node_bg": "#c5b8e0",
-        "node_border": "#7c6f9f",
-        "node_text": "#2a1a4a",
+        "node_bg": "#2a2340",
+        "node_border": "#8b7ab8",
+        "node_text": "#e6defa",
         "subgraph_label": "Infrastructure",
     },
     "networking": {
-        "bg": "#fdf0dc",
-        "border": "#c08040",
-        "header": "#c08040",
+        "bg": "#2a2016",
+        "border": "#d49a5f",
+        "header": "#b8793f",
         "header_text": "#ffffff",
-        "node_bg": "#f5d9a8",
-        "node_border": "#c08040",
-        "node_text": "#3a1a00",
+        "node_bg": "#3a2a1c",
+        "node_border": "#d49a5f",
+        "node_text": "#fde7c5",
         "subgraph_label": "Networking",
     },
     "container": {
-        "bg": "#e8f0fd",
-        "border": "#4a7ac8",
-        "header": "#4a7ac8",
+        "bg": "#162235",
+        "border": "#6f9fe6",
+        "header": "#3f6fb8",
         "header_text": "#ffffff",
-        "node_bg": "#b8cef0",
-        "node_border": "#4a7ac8",
-        "node_text": "#0a1a3a",
+        "node_bg": "#21324d",
+        "node_border": "#6f9fe6",
+        "node_text": "#dbeaff",
         "subgraph_label": "Containers / VMs",
     },
     "device": {
-        "bg": "#e8f5e8",
-        "border": "#5a8a5a",
-        "header": "#5a8a5a",
+        "bg": "#16281b",
+        "border": "#74a878",
+        "header": "#4f8a59",
         "header_text": "#ffffff",
-        "node_bg": "#b8d8b8",
-        "node_border": "#5a8a5a",
-        "node_text": "#0a2a0a",
+        "node_bg": "#23392a",
+        "node_border": "#74a878",
+        "node_text": "#d8f0dc",
         "subgraph_label": "Devices",
     },
 }
 
 _DEFAULT_COLOURS = {
-    "bg": "#f5f5f5",
-    "border": "#aaaaaa",
-    "header": "#888888",
+    "bg": "#1b2232",
+    "border": "#7f8ca6",
+    "header": "#5f6f8d",
     "header_text": "#ffffff",
-    "node_bg": "#dddddd",
-    "node_border": "#aaaaaa",
-    "node_text": "#111111",
+    "node_bg": "#2a344a",
+    "node_border": "#7f8ca6",
+    "node_text": "#e3e9f5",
     "subgraph_label": "Other",
 }
 
@@ -80,6 +80,7 @@ def _colours(category: str) -> dict:
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
+
 
 def _safe_id(slug: str) -> str:
     """Convert a slug to a safe Mermaid/SVG identifier."""
@@ -99,6 +100,7 @@ def _node_label_lines(machine: dict) -> list[str]:
 # ---------------------------------------------------------------------------
 # Mermaid builder
 # ---------------------------------------------------------------------------
+
 
 def build_mermaid_topology(machines_data: dict) -> str:
     """Generate a Mermaid ``graph TD`` diagram from entity machine data.
@@ -232,7 +234,7 @@ _ZONE_INNER_TOP = _ZONE_HEADER_H + _ZONE_PADDING
 # Zone layout: key → (x, y, width, reserved_height_guess)
 _ZONE_POSITIONS = {
     "infrastructure": (20, 20),
-    "networking": (20, 20),       # overridden dynamically
+    "networking": (20, 20),  # overridden dynamically
     "container": (20, 20),
     "device": (20, 20),
 }
@@ -430,9 +432,9 @@ def build_svg_topology(machines_data: dict) -> str:
     if not machines:
         return textwrap.dedent("""\
             <svg xmlns="http://www.w3.org/2000/svg" width="400" height="80">
-              <rect width="400" height="80" rx="8" fill="#f5f5f5" stroke="#ccc"/>
+                            <rect width="400" height="80" rx="8" fill="#1b2232" stroke="#7f8ca6"/>
               <text x="200" y="46" text-anchor="middle"
-                    font-family="Arial,sans-serif" font-size="14" fill="#888">
+                                        font-family="Arial,sans-serif" font-size="14" fill="#c9d3e6">
                 No entity pages found — run /update-infrastructure to populate.
               </text>
             </svg>
@@ -475,9 +477,15 @@ def build_svg_topology(machines_data: dict) -> str:
     if infra_machines:
         col = _colours("infrastructure")
         frag, zone_h = _svg_zone(
-            zone_x, cur_y, INFRA_ZONE_W,
-            col["subgraph_label"], infra_machines,
-            col, slug_map, children_map, draw_hosts=True,
+            zone_x,
+            cur_y,
+            INFRA_ZONE_W,
+            col["subgraph_label"],
+            infra_machines,
+            col,
+            slug_map,
+            children_map,
+            draw_hosts=True,
         )
         svg_parts.append(frag)
         infra_y = cur_y
@@ -492,9 +500,15 @@ def build_svg_topology(machines_data: dict) -> str:
     if net_machines:
         col = _colours("networking")
         frag, net_h = _svg_zone(
-            net_x, cur_y, NET_ZONE_W,
-            col["subgraph_label"], net_machines,
-            col, slug_map, children_map, draw_hosts=False,
+            net_x,
+            cur_y,
+            NET_ZONE_W,
+            col["subgraph_label"],
+            net_machines,
+            col,
+            slug_map,
+            children_map,
+            draw_hosts=False,
         )
         svg_parts.append(frag)
     else:
@@ -508,9 +522,15 @@ def build_svg_topology(machines_data: dict) -> str:
     if dev_machines:
         col = _colours("device")
         frag, dev_h = _svg_zone(
-            zone_x, cur_y, DEV_ZONE_W,
-            col["subgraph_label"], dev_machines,
-            col, slug_map, children_map, draw_hosts=False,
+            zone_x,
+            cur_y,
+            DEV_ZONE_W,
+            col["subgraph_label"],
+            dev_machines,
+            col,
+            slug_map,
+            children_map,
+            draw_hosts=False,
         )
         svg_parts.append(frag)
     else:
@@ -526,8 +546,15 @@ def build_svg_topology(machines_data: dict) -> str:
         col = _colours(cat)
         label = col.get("subgraph_label", cat.title())
         frag, oh = _svg_zone(
-            other_x, other_y, DEV_ZONE_W,
-            label, cat_machines, col, slug_map, children_map, draw_hosts=False,
+            other_x,
+            other_y,
+            DEV_ZONE_W,
+            label,
+            cat_machines,
+            col,
+            slug_map,
+            children_map,
+            draw_hosts=False,
         )
         svg_parts.append(frag)
         other_x += DEV_ZONE_W + zone_gap
@@ -545,9 +572,9 @@ def build_svg_topology(machines_data: dict) -> str:
         f' width="{total_w}" height="{total_h}"'
         f' viewBox="0 0 {total_w} {total_h}">',
         "  <!-- Auto-generated by hermes-update-infrastructure -->",
-        f'  <rect width="{total_w}" height="{total_h}" fill="#f8f8fc"/>',
+        f'  <rect width="{total_w}" height="{total_h}" fill="#0f172a"/>',
         f'  <text x="{total_w // 2}" y="18" text-anchor="middle"'
-        f'   font-family="{_FONT}" font-size="11" fill="#999">'
+        f'   font-family="{_FONT}" font-size="11" fill="#8aa0c4">'
         "Homelab Network Topology — auto-generated</text>",
     ]
 
@@ -559,6 +586,7 @@ def build_svg_topology(machines_data: dict) -> str:
 # ---------------------------------------------------------------------------
 # File export helper
 # ---------------------------------------------------------------------------
+
 
 def export_topology_svg(machines_data: dict, output_path: str) -> bool:
     """Write the topology SVG to *output_path*.
