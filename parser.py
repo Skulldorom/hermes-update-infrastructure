@@ -181,6 +181,42 @@ def _get_generic_infra_names() -> frozenset[str]:
     return _DEFAULT_GENERIC_INFRA_NAMES
 
 
+def _parse_server_aliases() -> dict[str, list[str]]:
+    """Parse ``SERVER_ALIASES`` env var into a short-name → [resolved_slugs] dict.
+
+    Format: ``key=value,key=value`` where *value* may be a single slug or a
+    pipe-delimited list (e.g. ``nas=thehoard-nas,proxmox=aegis-proxmox|thesentinel-proxmox``).
+
+    Returns:
+        A dict mapping each short alias key to a list of resolved entity slugs.
+        Empty dict when the env var is unset or empty.
+    """
+    env_val = os.environ.get("SERVER_ALIASES", "").strip()
+    if not env_val:
+        return {}
+    aliases: dict[str, list[str]] = {}
+    for pair in env_val.split(","):
+        pair = pair.strip()
+        if "=" not in pair:
+            continue
+        key, value = pair.split("=", 1)
+        key = key.strip().lower()
+        aliases[key] = [v.strip() for v in value.split("|") if v.strip()]
+    return aliases
+
+
+def _get_suppressed_entity_names() -> frozenset[str]:
+    """Return service names to skip in the missing-entity-page report.
+
+    Reads the ``SUPPRESS_ENTITY_CHECK`` env var (comma-separated list of
+    service display names).  Matching is case-insensitive.
+    """
+    env_val = os.environ.get("SUPPRESS_ENTITY_CHECK", "").strip()
+    if not env_val:
+        return frozenset()
+    return frozenset(n.strip().lower() for n in env_val.split(",") if n.strip())
+
+
 def _is_personal_device_entity(entity: dict) -> bool:
     """Return True when the entity page represents a personal device or person.
 
@@ -194,15 +230,36 @@ def _is_personal_device_entity(entity: dict) -> bool:
     return False
 
 
-def _suggest_server_match(server: str, entity_pages: dict) -> list[str]:
+def _suggest_server_match(
+    server: str,
+    entity_pages: dict,
+    alias_targets: set[str] | None = None,
+) -> list[str]:
     """Return entity slugs that contain *server* as a substring.
+
+    When *alias_targets* is provided, also includes matching alias targets
+    in the suggestion list (useful when the user's short server name matches
+    an alias but not the entity slug itself).
 
     Used to generate "Did you mean…?" suggestions for unmapped server fields.
     """
     server_slug = _slugify(str(server))
     if not server_slug:
         return []
-    return sorted(slug for slug in entity_pages if server_slug in slug)
+
+    results = sorted(slug for slug in entity_pages if server_slug in slug)
+
+    # Include alias targets that contain the server slug
+    if alias_targets:
+        alias_matches = sorted(a for a in alias_targets if server_slug in a)
+        # Merge, deduplicate, preserve order
+        seen: set[str] = set(results)
+        for a in alias_matches:
+            if a not in seen:
+                results.append(a)
+                seen.add(a)
+
+    return results
 
 
 def _extract_ip_from_url(url: str) -> str | None:
@@ -294,9 +351,17 @@ def cross_reference(data: dict, entity_pages: dict | None) -> dict:
 
     services = data.get("services", [])
     generic_names = _get_generic_infra_names()
+    suppressed_names = _get_suppressed_entity_names()
 
     # Build a set of service slugs for fast lookup
     service_slugs = {_slugify(svc["name"]) for svc in services}
+
+    # Parse server→entity aliases and build a reverse lookup
+    server_aliases = _parse_server_aliases()
+    # alias_targets: set of all entity slugs referenced by any alias
+    alias_targets: set[str] = set()
+    for targets in server_aliases.values():
+        alias_targets.update(targets)
 
     # Build a set of known host identifiers from entity pages
     known_hosts: set[str] = set()
@@ -308,6 +373,11 @@ def cross_reference(data: dict, entity_pages: dict | None) -> dict:
         entity_type = entity.get("type")
         if entity_type:
             known_hosts.add(_slugify(str(entity_type)))
+
+    # Expand known_hosts with alias keys and their resolved slugs
+    for alias_key, targets in server_aliases.items():
+        known_hosts.add(_slugify(alias_key))
+        known_hosts.update(targets)
 
     missing_entity_pages: list[dict] = []
     ip_drift: list[dict] = []
@@ -321,7 +391,25 @@ def cross_reference(data: dict, entity_pages: dict | None) -> dict:
             # Skip well-known generic infrastructure names — they are stack/type
             # labels, not specific hosts, so a missing entity page is expected.
             if slug not in generic_names:
-                missing_entity_pages.append({"name": svc["name"], "href": svc.get("href", "")})
+                # Skip services explicitly suppressed via SUPPRESS_ENTITY_CHECK
+                if svc["name"].lower() not in suppressed_names:
+                    # Skip services whose server field maps to a known entity
+                    # (the service is documented via its parent's entity page)
+                    server_val = svc.get("server")
+                    server_is_known = False
+                    if server_val:
+                        server_slug = _slugify(str(server_val))
+                        # Check direct match + alias resolution
+                        if server_slug in known_hosts:
+                            server_is_known = True
+                        else:
+                            aliases = server_aliases.get(server_slug, [])
+                            if any(a in known_hosts for a in aliases):
+                                server_is_known = True
+                    if not server_is_known:
+                        missing_entity_pages.append(
+                            {"name": svc["name"], "href": svc.get("href", "")}
+                        )
         else:
             # IP drift: compare siteMonitor URL IP against entity page ip field
             entity_ip = entity.get("ip")
@@ -335,15 +423,20 @@ def cross_reference(data: dict, entity_pages: dict | None) -> dict:
                         "entity_ip": str(entity_ip),
                     })
 
-        # Unmapped server field — add fuzzy suggestions
+        # Unmapped server field — resolve aliases before flagging
         server = svc.get("server")
-        if server and _slugify(str(server)) not in known_hosts:
-            suggestions = _suggest_server_match(server, entity_pages)
-            unmapped_servers.append({
-                "name": svc["name"],
-                "server": server,
-                "suggestions": suggestions,
-            })
+        if server:
+            server_slug = _slugify(str(server))
+            if server_slug not in known_hosts:
+                # Check if server resolves via alias
+                aliases = server_aliases.get(server_slug, [])
+                if not any(a in known_hosts for a in aliases):
+                    suggestions = _suggest_server_match(server, entity_pages, alias_targets)
+                    unmapped_servers.append({
+                        "name": svc["name"],
+                        "server": server,
+                        "suggestions": suggestions,
+                    })
 
     # Orphaned entity pages: slugs not matched by any service slug.
     # Personal device / people pages are silently excluded.
