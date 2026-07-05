@@ -227,6 +227,58 @@ def _handle_intent_cleanup(cross_ref: dict) -> str:
 # Cross-reference formatter (command response)
 # ---------------------------------------------------------------------------
 
+def _format_topology_summary(machines_data: dict) -> str:
+    """Return a markdown summary of the network topology from entity pages."""
+    machines = machines_data.get("machines", [])
+    if not machines:
+        return ""
+
+    # Count by category
+    counts: dict[str, int] = {}
+    for m in machines:
+        cat = m.get("category", "other")
+        counts[cat] = counts.get(cat, 0) + 1
+
+    # Map category to emoji + label
+    cat_display = {
+        "infrastructure": ("🖥️", "Infrastructure"),
+        "networking": ("🌐", "Networking"),
+        "container": ("📦", "Containers / VMs"),
+        "device": ("📱", "Devices"),
+    }
+
+    lines = ["## Network Topology", ""]
+    lines.append(f"**{len(machines)} machines** across {len(counts)} categories:")
+    lines.append("")
+
+    for cat in ["infrastructure", "networking", "container", "device"]:
+        if cat in counts:
+            emoji, label = cat_display.get(cat, ("•", cat.title()))
+            lines.append(f"  {emoji} **{label}:** {counts[cat]}")
+
+    # Show remaining categories
+    for cat, count in sorted(counts.items()):
+        if cat not in cat_display:
+            lines.append(f"  • **{cat.title()}:** {count}")
+
+    # Show host→child connections
+    slug_map = {m["slug"]: m for m in machines}
+    connections: list[tuple[str, str]] = []
+    for m in machines:
+        host_slug = m.get("host", "")
+        if host_slug and host_slug in slug_map:
+            connections.append((slug_map[host_slug]["name"], m["name"]))
+
+    if connections:
+        lines.append("")
+        lines.append("**Connections:**")
+        for parent, child in sorted(connections, key=lambda x: x[0]):
+            lines.append(f"  {parent} → {child}")
+
+    lines.append("")
+    return "\n".join(lines)
+
+
 def _format_cross_reference(cross_ref: dict) -> str:
     """Return a markdown string summarising cross-reference findings."""
     lines = ["## Cross-Reference Findings", ""]
@@ -369,6 +421,11 @@ def _handle_update(raw_args: str) -> str:
         if svg_saved and machines_data.get("machines"):
             lines.append(f"**Topology SVG:** `{svg_path}` — updated")
         lines.append("")
+
+        # Topology summary
+        topo_summary = _format_topology_summary(machines_data)
+        if topo_summary:
+            lines.append(topo_summary)
 
         # Cross-reference findings
         lines.append(_format_cross_reference(cross_ref))
