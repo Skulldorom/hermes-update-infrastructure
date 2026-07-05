@@ -117,6 +117,26 @@ def build_mermaid_topology(machines_data: dict) -> str:
     if not machines:
         return "graph TD\n    empty[No entity pages found]"
 
+    # Deduplicate: suppress purely-numeric slugs that share an IP with a
+    # named entity.  These are typically CT/VM IDs auto-parsed from inline
+    # tables whose real identity already has a dedicated entity page.
+    _numeric_slugs = {m["slug"]: m for m in machines if re.fullmatch(r"\d+", m["slug"])}
+    if _numeric_slugs:
+        _named_by_ip: dict[str, str] = {}
+        for m in machines:
+            ip = m.get("ip", "")
+            if ip and not re.fullmatch(r"\d+", m["slug"]):
+                _named_by_ip[ip] = m["slug"]
+        if _named_by_ip:
+            machines = [
+                m
+                for m in machines
+                if not (
+                    m["slug"] in _numeric_slugs
+                    and m.get("ip", "") in _named_by_ip
+                )
+            ]
+
     # Build slug → machine lookup
     slug_map = {m["slug"]: m for m in machines}
 
