@@ -16,6 +16,8 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
+from . import parser_wiki, topology as topology_mod
+
 
 def _hash_block(text: str) -> str:
     """Short hash of a text block for change detection."""
@@ -173,10 +175,30 @@ def _build_cross_reference_section(data: dict) -> str:
     return "\n".join(lines)
 
 
+def _build_topology_diagram(data: dict) -> str:
+    """Generate the Network Topology section with embedded Mermaid diagram.
+
+    Uses entity pages from ``data["entities_dir"]`` when available; falls
+    back to an empty machine list so the section is always renderable.
+    """
+    entities_dir = data.get("entities_dir", "")
+    if entities_dir:
+        machines_data = parser_wiki.parse_entity_pages(entities_dir)
+    else:
+        machines_data = {"machines": []}
+
+    if not machines_data.get("machines"):
+        return "*(No entity pages found — run `/update-infrastructure` after adding `entities/*.md` files)*\n"
+
+    mermaid_code = topology_mod.build_mermaid_topology(machines_data)
+    return f"```mermaid\n{mermaid_code}\n```\n"
+
+
 AUTO_SECTION_TEMPLATES = {
     "service_groups": _build_service_groups,
     "subdomains": _build_subdomain_table,
     "cross_reference": _build_cross_reference_section,
+    "topology": _build_topology_diagram,
 }
 
 MARKER_START = "<!-- HOMEPAGE_AUTO:"
@@ -339,10 +361,20 @@ def _generate_full_page(data: dict) -> str:
         "",
         "---",
         "",
+        "## Network Topology",
+        "",
+        "> Auto-generated Mermaid diagram from entity pages. Renders natively in Obsidian.",
+        "",
+        f"{MARKER_START} topology -->",
+        _build_topology_diagram(data),
+        f"{MARKER_END} topology -->",
+        "",
+        "---",
+        "",
         "## Manual Sections",
         "",
         "> Sections below are maintained manually and are not affected by `/update-infrastructure`.",
-        "> Add network topology, machine details, DHCP config, Tailscale info, etc. here.",
+        "> Add machine details, DHCP config, Tailscale info, etc. here.",
         "",
     ]
 
