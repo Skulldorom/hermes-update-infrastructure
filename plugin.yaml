@@ -1,5 +1,5 @@
 name: update-infrastructure
-version: 2.1.1
+version: 2.1.2
 description: >
   /update-infrastructure (aliases: /update-infra, /sync-infra) —
   sync homelab wiki from homepage dashboard config, with noise-filtered
