@@ -2,6 +2,8 @@
 
 Hermes Agent plugin — `/update-infrastructure` slash command. Syncs your homelab wiki from your [Homepage](https://gethomepage.dev/) dashboard config.
 
+![Version](https://img.shields.io/badge/version-2.1.0-blue)
+
 ## Install
 
 ```bash
@@ -28,13 +30,15 @@ Type `/update-infrastructure` (or the short aliases `/update-infra` / `/sync-inf
 The plugin will:
 
 1. Pull the latest from your homepage dashboard repo
-2. Parse `services.yaml` (bookmarks also live here, inside a "Bookmarks" group — `bookmarks.yaml` is not used)
+2. Parse `services.yaml` and `bookmarks.yaml` for all services and bookmarks
 3. Update the wiki page `guides/homelab-infrastructure.md` with:
    - **Service Groups** — all services grouped by layout section, with URLs, monitors, containers, widgets
    - **Subdomain Table** — complete subdomain → service → URL → monitor mapping
    - **Cross-Reference Findings** — entity page gaps, IP drift, orphaned pages, unmapped server fields
-4. Log the sync to `log.md`
-5. Return a sync report with cross-reference findings, elapsed time, and the result of any inline command
+   - **Network Topology** — auto-generated Mermaid diagram from entity pages (renders natively in Obsidian)
+4. Generate and save `assets/topology.svg` — a standalone SVG network diagram with color-coded zones
+5. Log the sync to `log.md`
+6. Return a sync report with topology summary, cross-reference findings, elapsed time, and the result of any inline command
 
 ### Inline commands
 
@@ -82,6 +86,60 @@ Commands are **case-insensitive** and match on prefix/keyword, not exact string.
 - **Only in wiki, never in homepage** → preserved untouched (manual content)
 
 Auto-generated sections are wrapped in `<!-- HOMEPAGE_AUTO: -->` markers — the plugin only touches content inside those markers. Everything else is your manual territory.
+
+## Network Topology
+
+On every sync the plugin generates two topology views from your `entities/*.md` entity pages:
+
+### Mermaid Diagram (in-wiki)
+
+A `graph TD` diagram embedded directly in `guides/homelab-infrastructure.md`. Renders natively in Obsidian. Machines are grouped into color-coded zones:
+
+| Zone | Color | Category |
+|------|-------|----------|
+| Infrastructure | Purple | Servers, NAS, hypervisors, storage |
+| Networking | Orange | Routers, switches, access points, firewalls |
+| Containers / VMs | Blue | Docker containers, LXCs, VMs |
+| Devices | Green | Physical devices, phones, laptops |
+
+Hosts with child containers show as parent boxes with child nodes nested inside. Edges link hosts → children.
+
+### SVG Export (standalone)
+
+A full standalone SVG is written to `wiki/assets/topology.svg` on every sync. Same color scheme and layout as the Mermaid diagram, designed for embedding in any page via `![Topology](assets/topology.svg)`.
+
+### Entity Page Format
+
+Both diagrams read from the same entity pages used by cross-reference checks. For topology rendering, these frontmatter fields are read:
+
+```yaml
+---
+title: Proxmox-1
+ip: 192.168.0.10
+os: Debian 12
+host: beast          # parent host slug (makes this a child node)
+type: container       # maps to category: infrastructure | networking | container | device
+services: [dns, adblock]
+tailscale_ip: 100.x.y.z
+---
+```
+
+Category mapping rules:
+- `infra`, `server`, `proxmox`, `nas`, `storage`, `hypervisor` → **Infrastructure**
+- `network`, `router`, `switch`, `ap`, `wireless`, `firewall` → **Networking**
+- `container`, `vm`, `lxc`, `virtual` → **Containers / VMs**
+- Everything else (e.g. `device`, `phone`, `laptop`) → preserved as-is
+
+## Project Structure
+
+| File | Role |
+|------|------|
+| `__init__.py` | Plugin registration, intent parsing, main command handler |
+| `parser.py` | Homepage YAML parsing (`services.yaml`, `bookmarks.yaml`), cross-reference checks, entity page scaffolding, IP repair |
+| `updater.py` | Wiki page generation with `<!-- HOMEPAGE_AUTO: -->` markers, log writing |
+| `topology.py` | Mermaid `graph TD` + standalone SVG topology diagrams from entity pages |
+| `parser_wiki.py` | Entity page frontmatter parsing for topology data |
+| `plugin.yaml` | Plugin manifest (name, version, description) |
 
 ## Cross-Reference Checks
 
@@ -200,22 +258,26 @@ parse inline command (intent)
 git pull homepage repo
       │
       ▼
-parse services.yaml ──→  services + subdomains
+parse services.yaml + bookmarks.yaml ──→  services + subdomains
       │
       ▼
 load entities/*.md ──→ noise-filtered cross-reference checks
       │
       ▼
 diff wiki page ──→ add/update/skip auto sections
+      │              (service groups, subdomains, cross-ref, topology)
       │
       ▼
 write page + log.md
       │
       ▼
+generate topology.svg ──→ write to wiki/assets/
+      │
+      ▼
 execute intent (create / fix-ip / fix all / check / cleanup)
       │
       ▼
-report back (cross-ref findings with action hints + elapsed time)
+report back (topology summary + cross-ref findings + elapsed time)
 ```
 
 ## License
