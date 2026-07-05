@@ -191,7 +191,10 @@ def _build_topology_diagram(data: dict) -> str:
         return "*(No entity pages found — run `/update-infrastructure` after adding `entities/*.md` files)*\n"
 
     mermaid_code = topology_mod.build_mermaid_topology(machines_data)
-    return f"```mermaid\n{mermaid_code}\n```\n"
+    return (
+        f"```mermaid\n{mermaid_code}\n```\n\n"
+        "![Network Topology](../assets/topology.svg)\n"
+    )
 
 
 AUTO_SECTION_TEMPLATES = {
@@ -363,7 +366,7 @@ def _generate_full_page(data: dict) -> str:
         "",
         "## Network Topology",
         "",
-        "> Auto-generated Mermaid diagram from entity pages. Renders natively in Obsidian.",
+        "> Auto-generated Mermaid diagram and SVG from entity pages. Both render natively in Obsidian.",
         "",
         f"{MARKER_START} topology -->",
         _build_topology_diagram(data),
