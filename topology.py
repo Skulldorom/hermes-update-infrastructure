@@ -154,11 +154,16 @@ def build_mermaid_topology(machines_data: dict) -> str:
             mid = _safe_id(m["slug"])
             label_text = "\\n".join(_node_label_lines(m))
             lines.append(f'        {mid}["{label_text}"]')
-            # Render child containers inline
+            # Render direct children inline
             for child in children.get(m["slug"], []):
                 cid = _safe_id(child["slug"])
                 clabel = "\\n".join(_node_label_lines(child))
                 lines.append(f'        {cid}["{clabel}"]')
+                # Render grandchildren inline too
+                for grandchild in children.get(child["slug"], []):
+                    gcid = _safe_id(grandchild["slug"])
+                    gclabel = "\\n".join(_node_label_lines(grandchild))
+                    lines.append(f'        {gcid}["{gclabel}"]')
         lines.append("    end")
 
     # Machines that had a host but host was not found — add to "other"
@@ -226,6 +231,7 @@ _HOST_HEADER_H = 32
 _HOST_INNER_TOP = _HOST_HEADER_H + _HOST_PADDING
 _HOST_COL_W = _NODE_W + 20
 _HOST_COLS = 2
+_HOST_CHILD_GAP = 10
 
 _ZONE_PADDING = 16
 _ZONE_HEADER_H = 28
@@ -276,39 +282,62 @@ def _svg_node(x: float, y: float, machine: dict, col: dict) -> tuple[str, float]
 
 
 def _svg_host_block(
-    x: float, y: float, host: dict, children: list[dict], col: dict
+    x: float,
+    y: float,
+    host: dict,
+    children: list[dict],
+    col: dict,
+    children_map: dict,
 ) -> tuple[str, float, float]:
-    """Render a host box that contains its children.
+    """Render a host box that contains its children (recursive).
 
-    Returns (svg_fragment, block_width, block_height).
+    Children that themselves have entries in *children_map* are rendered
+    as nested host blocks instead of flat nodes.  Layout adapts column
+    widths to accommodate any child that is wider than ``_NODE_W``.
+
+    Returns ``(svg_fragment, block_width, block_height)``.
     """
-    col_w = _HOST_COL_W
     n_children = len(children)
-    n_cols = min(_HOST_COLS, max(1, n_children))
-    n_rows = max(1, -(-n_children // n_cols))  # ceil division
+    host_col = col
 
-    # Minimum child node height
-    child_h = _NODE_H
+    # ── Pre-compute child dimensions ──────────────────────────
+    child_widths: list[float] = []
+    child_heights: list[float] = []
+    for child in children:
+        grandkids = children_map.get(child["slug"], [])
+        if grandkids:
+            _, cw, ch = _svg_host_block(0, 0, child, grandkids, col, children_map)
+        else:
+            cw = _NODE_W
+            ch = _NODE_H
+        child_widths.append(cw)
+        child_heights.append(ch)
+
+    col_w = max(_NODE_W, max(child_widths) + _HOST_CHILD_GAP) if child_widths else _HOST_COL_W
+    n_cols = min(_HOST_COLS, max(1, n_children))
+
+    # ── Compute row heights (variable per child) ──────────────
+    row_heights: list[float] = []
+    for i in range(0, n_children, n_cols):
+        row_kids = child_heights[i : i + n_cols]
+        row_heights.append(max(row_kids) + _HOST_CHILD_GAP)
+
     inner_w = n_cols * col_w + _HOST_PADDING
-    inner_h = n_rows * (child_h + 10) + _HOST_PADDING
+    inner_h = sum(row_heights) + _HOST_PADDING if row_heights else _NODE_H
 
     block_w = max(_NODE_W + _HOST_PADDING * 2, inner_w + _HOST_PADDING)
     block_h = _HOST_INNER_TOP + inner_h + _HOST_PADDING
 
-    host_col = col  # use same palette as zone
-
+    # ── Draw outer box + header ───────────────────────────────
     parts: list[str] = [
-        # Outer container box
         f'<rect x="{x:.0f}" y="{y:.0f}" width="{block_w:.0f}" height="{block_h:.0f}"'
         f' rx="12" fill="{host_col["bg"]}" stroke="{host_col["border"]}" stroke-width="2"/>',
-        # Header bar
         f'<rect x="{x:.0f}" y="{y:.0f}" width="{block_w:.0f}" height="{_HOST_HEADER_H}"'
         f' rx="12" fill="{host_col["header"]}" stroke="none"/>',
         f'<rect x="{x:.0f}" y="{y + _NODE_RX:.0f}" width="{block_w:.0f}"'
         f' height="{_HOST_HEADER_H - _NODE_RX}" fill="{host_col["header"]}" stroke="none"/>',
     ]
 
-    # Host label in header
     header_text_parts = [host["name"]]
     if host.get("ip"):
         header_text_parts.append(host["ip"])
@@ -321,25 +350,30 @@ def _svg_host_block(
         f' font-weight="700" fill="{host_col["header_text"]}">{_xml_escape(header_label)}</text>'
     )
 
-    # Child nodes
-    child_col = _colours("container")
-    cx = x + _HOST_PADDING
-    cy_base = y + _HOST_INNER_TOP
-
-    for i, child in enumerate(children):
-        col_idx = i % n_cols
-        row_idx = i // n_cols
-        cx_pos = cx + col_idx * col_w
-        cy_pos = cy_base + row_idx * (child_h + 10)
-        frag, _ = _svg_node(cx_pos, cy_pos, child, child_col)
-        parts.append(frag)
-
-    # If no children, draw a placeholder
+    # ── Draw children ─────────────────────────────────────────
     if not children:
-        label = host["name"]
         frag, _ = _svg_node(x + _HOST_PADDING, y + _HOST_INNER_TOP, host, host_col)
         parts.append(frag)
         block_h = _HOST_INNER_TOP + _NODE_H + _HOST_PADDING * 2
+    else:
+        child_col = _colours("container")
+        cx = x + _HOST_PADDING
+        cy_base = y + _HOST_INNER_TOP
+
+        for i, child in enumerate(children):
+            col_idx = i % n_cols
+            row_idx = i // n_cols
+            cx_pos = cx + col_idx * col_w
+            cy_pos = cy_base + sum(row_heights[:row_idx])
+
+            grandkids = children_map.get(child["slug"], [])
+            if grandkids:
+                frag, _, _ = _svg_host_block(
+                    cx_pos, cy_pos, child, grandkids, child_col, children_map
+                )
+            else:
+                frag, _ = _svg_node(cx_pos, cy_pos, child, child_col)
+            parts.append(frag)
 
     return "\n".join(parts), block_w, block_h
 
@@ -351,13 +385,14 @@ def _svg_zone(
     label: str,
     machines: list[dict],
     col: dict,
-    slug_map: dict,
     children_map: dict,
-    draw_hosts: bool = False,
 ) -> tuple[str, float]:
     """Render a category zone box containing node blocks.
 
-    Returns (svg_fragment, total_height_used).
+    Any machine that has children in *children_map* is rendered as a
+    host block; all others are rendered as flat nodes.
+
+    Returns ``(svg_fragment, total_height_used)``.
     """
     parts: list[str] = []
     row_gap = 14
@@ -372,11 +407,9 @@ def _svg_zone(
     row_max_x = x + zone_w - _ZONE_PADDING
 
     for m in machines:
-        if draw_hosts:
-            kids = children_map.get(m["slug"], [])
-            frag, bw, bh = _svg_host_block(cur_x, cur_y, m, kids, col)
-            elem_w = bw
-            elem_h = bh
+        kids = children_map.get(m["slug"], [])
+        if kids:
+            frag, elem_w, elem_h = _svg_host_block(cur_x, cur_y, m, kids, col, children_map)
         else:
             frag, elem_h = _svg_node(cur_x, cur_y, m, col)
             elem_w = _NODE_W
@@ -388,10 +421,11 @@ def _svg_zone(
             row_h = 0
 
         # Re-render at corrected position
-        if draw_hosts:
-            frag, elem_w, elem_h = _svg_host_block(cur_x, cur_y, m, kids, col)
+        if kids:
+            frag, elem_w, elem_h = _svg_host_block(cur_x, cur_y, m, kids, col, children_map)
         else:
             frag, elem_h = _svg_node(cur_x, cur_y, m, col)
+            elem_w = _NODE_W
 
         parts.append(frag)
         row_h = max(row_h, elem_h)
@@ -462,18 +496,34 @@ def build_svg_topology(machines_data: dict) -> str:
     # -----------------------------------------------------------------------
     margin = 20
     zone_gap = 20
-    INFRA_ZONE_W = 900
-    NET_ZONE_W = 380
-    DEV_ZONE_W = 500
+
+    def _compute_zone_width(machines: list[dict]) -> float:
+        """Compute the minimum zone width needed for *machines*."""
+        max_w = _NODE_W
+        for m in machines:
+            kids = children_map.get(m["slug"], [])
+            if kids:
+                n_children = len(kids)
+                n_cols = min(_HOST_COLS, max(1, n_children))
+                inner_w = n_cols * _HOST_COL_W + _HOST_PADDING
+                block_w = max(_NODE_W + _HOST_PADDING * 2, inner_w + _HOST_PADDING)
+                max_w = max(max_w, block_w)
+        return max(max_w + _ZONE_PADDING * 2, _NODE_W + _ZONE_PADDING * 2 + 40)
+
+    infra_machines = groups.get("infrastructure", [])
+    net_machines = groups.get("networking", [])
+    dev_machines = groups.get("device", [])
+
+    INFRA_ZONE_W = max(_compute_zone_width(infra_machines), 900) if infra_machines else 0
+    NET_ZONE_W = max(_compute_zone_width(net_machines), 380) if net_machines else 0
+    DEV_ZONE_W = max(_compute_zone_width(dev_machines), 500) if dev_machines else 0
 
     svg_parts: list[str] = []
-    connections: list[str] = []  # drawn on top of zones
 
     cur_y = margin
     zone_x = margin
 
-    # --- Infrastructure zone (left column, full width or partial) ---
-    infra_machines = groups.get("infrastructure", [])
+    # --- Infrastructure zone (left column) ---
     if infra_machines:
         col = _colours("infrastructure")
         frag, zone_h = _svg_zone(
@@ -483,9 +533,7 @@ def build_svg_topology(machines_data: dict) -> str:
             col["subgraph_label"],
             infra_machines,
             col,
-            slug_map,
             children_map,
-            draw_hosts=True,
         )
         svg_parts.append(frag)
         infra_y = cur_y
@@ -495,8 +543,7 @@ def build_svg_topology(machines_data: dict) -> str:
         infra_h = 0
 
     # --- Networking zone (right of infrastructure) ---
-    net_x = zone_x + INFRA_ZONE_W + zone_gap
-    net_machines = groups.get("networking", [])
+    net_x = zone_x + INFRA_ZONE_W + zone_gap if INFRA_ZONE_W else zone_x
     if net_machines:
         col = _colours("networking")
         frag, net_h = _svg_zone(
@@ -506,9 +553,7 @@ def build_svg_topology(machines_data: dict) -> str:
             col["subgraph_label"],
             net_machines,
             col,
-            slug_map,
             children_map,
-            draw_hosts=False,
         )
         svg_parts.append(frag)
     else:
@@ -518,7 +563,6 @@ def build_svg_topology(machines_data: dict) -> str:
     cur_y += left_col_h + zone_gap
 
     # --- Device zone (below both) ---
-    dev_machines = groups.get("device", [])
     if dev_machines:
         col = _colours("device")
         frag, dev_h = _svg_zone(
@@ -528,9 +572,7 @@ def build_svg_topology(machines_data: dict) -> str:
             col["subgraph_label"],
             dev_machines,
             col,
-            slug_map,
             children_map,
-            draw_hosts=False,
         )
         svg_parts.append(frag)
     else:
@@ -538,7 +580,7 @@ def build_svg_topology(machines_data: dict) -> str:
 
     # --- Other categories ---
     known_cats = {"infrastructure", "networking", "container", "device"}
-    other_x = zone_x + DEV_ZONE_W + zone_gap if dev_machines else zone_x
+    other_x = zone_x + DEV_ZONE_W + zone_gap if dev_machines and DEV_ZONE_W else zone_x
     other_y = cur_y
     other_h = 0
     for cat, cat_machines in groups.items():
@@ -546,20 +588,19 @@ def build_svg_topology(machines_data: dict) -> str:
             continue
         col = _colours(cat)
         label = col.get("subgraph_label", cat.title())
+        cat_w = max(_compute_zone_width(cat_machines), DEV_ZONE_W)
         frag, oh = _svg_zone(
             other_x,
             other_y,
-            DEV_ZONE_W,
+            cat_w,
             label,
             cat_machines,
             col,
-            slug_map,
             children_map,
-            draw_hosts=False,
         )
         svg_parts.append(frag)
         other_h = max(other_h, oh)
-        other_x += DEV_ZONE_W + zone_gap
+        other_x += cat_w + zone_gap
 
     bottom_y = cur_y + max(dev_h, other_h)
 
