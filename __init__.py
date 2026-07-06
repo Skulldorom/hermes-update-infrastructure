@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import parser, updater
-from . import parser_wiki, topology as topology_mod
+from . import parser_wiki
 
 logger = logging.getLogger(__name__)
 
@@ -406,11 +406,6 @@ def _handle_update(raw_args: str) -> str:
         # 4. Update wiki log
         updater.update_wiki_log(str(log_path), result)
 
-        # 4a. Generate and save topology SVG to wiki assets
-        svg_path = wiki_root / "assets" / "topology.svg"
-        machines_data = parser_wiki.parse_entity_pages(str(wiki_root / "entities"))
-        svg_saved = topology_mod.export_topology_svg(machines_data, str(svg_path))
-
         # 5. Build base response
         lines = lines_progress + [
             "## Infrastructure Sync Complete",
@@ -418,11 +413,9 @@ def _handle_update(raw_args: str) -> str:
             f"**Source:** {svc_count} services, {sub_count} subdomains from homepage config",
             "",
         ]
-        if svg_saved and machines_data.get("machines"):
-            lines.append(f"**Topology SVG:** `{svg_path}` — updated")
-        lines.append("")
 
         # Topology summary
+        machines_data = parser_wiki.parse_entity_pages(str(wiki_root / "entities"))
         topo_summary = _format_topology_summary(machines_data)
         if topo_summary:
             lines.append(topo_summary)
