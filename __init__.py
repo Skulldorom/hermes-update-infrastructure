@@ -6,17 +6,17 @@ Wiki content never in homepage is preserved untouched.
 
 Provides two interfaces:
 - update_infrastructure tool (infra toolset) -- returns structured JSON for LLM processing
-- /update-infrastructure slash command -- hands off structured JSON to the agent for summarisation
+- /update-infrastructure slash command -- renders human-readable summary directly
 
 Sub-commands (via intent parsing):
-  /update-infrastructure              → full sync, agent summarises from JSON
-  /update-infrastructure tool         → raw JSON output (no agent processing)
-  /update-infrastructure status       → cross-reference check only
-  /update-infrastructure create NAME  → scaffold an entity page
-  /update-infrastructure fix-ip NAME  → repair IP drift for one service
-  /update-infrastructure fix all      → repair all IP drift
-  /update-infrastructure check NAME   → deep-check one service
-  /update-infrastructure cleanup      → list orphaned entity pages
+  /update-infrastructure                  -> full sync with human-readable report
+  /update-infrastructure tool             -> raw JSON output (for scripting)
+  /update-infrastructure status           -> cross-reference check only
+  /update-infrastructure create NAME      -> scaffold an entity page
+  /update-infrastructure fix-ip NAME      -> repair IP drift for one service
+  /update-infrastructure fix all          -> repair all IP drift
+  /update-infrastructure check NAME       -> deep-check one service
+  /update-infrastructure cleanup          -> list orphaned entity pages
 """
 
 import json
@@ -26,6 +26,7 @@ import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from . import config, parser, updater
 from . import parser_wiki
@@ -131,16 +132,241 @@ def _get_wiki_path() -> Path:
 
 
 def _handle_update(raw_args: str) -> str:
-    """Handler for /update-infrastructure.
+    """Handler for /update-infrastructure slash command.
 
-    Returns structured JSON so the Hermes agent can process, summarise,
-    and follow up naturally.  The old markdown formatting is gone -- the
-    agent now writes the human-readable summary.
+    Renders a human-readable summary from the JSON output so the user
+    sees a concise report without raw JSON in the terminal.
 
-    Pass ``"tool"`` as *raw_args* to get raw JSON output with no agent
-    involvement (escape hatch for scripting / integration).
+    Pass ``"tool"`` as *raw_args* to get raw JSON output with no human
+    rendering (escape hatch for scripting / integration).
     """
-    return _handle_update_tool(raw_args)
+    raw = raw_args or ""
+    if raw.strip().lower().startswith("tool"):
+        return _handle_update_tool(raw_args)
+
+    json_str = _handle_update_tool(raw_args)
+    try:
+        data = json.loads(json_str)
+    except json.JSONDecodeError:
+        return json_str  # fallback to raw
+
+    if "error" in data:
+        return f"\u26a0\ufe0f Sync failed: {data['error']}"
+
+    lines: list[str] = []
+    elapsed = data.get("elapsed_seconds", 0)
+    changed = data.get("changed", False)
+
+    # ── Intent-specific messages ──
+    intent = data.get("intent", {})
+    intent_type = intent.get("type", "none")
+
+    if intent_type == "status":
+        lines.append(_render_status(data))
+    elif intent_type == "echo":
+        lines.append(_render_echo(intent))
+    else:
+        renderer = _INTENT_RENDERERS.get(intent_type)
+        if renderer is not None:
+            lines.append(renderer(intent.get("result", {})))
+        else:
+            # ── Full sync summary ──
+            source = data.get("source", {})
+            svc_count = source.get("services", 0)
+            sub_count = source.get("subdomains", 0)
+
+            icon = "✅" if not changed else "↕"
+            lines.append(f"{icon} Homelab infrastructure synced ({elapsed}s)")
+            lines.append(f"   Source: {svc_count} services, {sub_count} subdomains")
+            lines.append(f"   Wiki: {data.get('wiki_file', '?')}")
+
+            sections = data.get("sections", {})
+            updated = sections.get("updated", [])
+            added = sections.get("added", [])
+            if updated or added:
+                lines.append("")
+                lines.append("📝 Changes:")
+                if updated:
+                    lines.append(f"   Updated: {', '.join(updated)}")
+                if added:
+                    lines.append(f"   Added: {', '.join(added)}")
+            elif changed:
+                lines.append("\n📝 Sections changed (detail unavailable)")
+
+            # Cross-reference summary
+            cross_ref = data.get("cross_reference") or {}
+            _render_cross_ref_summary(lines, cross_ref)
+
+            # Topology
+            topology = data.get("topology", {})
+            mc = topology.get("machine_count", 0)
+            if mc:
+                cats = topology.get("categories", {})
+                cat_str = ", ".join(f"{k}: {v}" for k, v in sorted(cats.items()))
+                lines.append(f"\n🖥️ Topology: {mc} machines ({cat_str})")
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Human-readable renderers for each intent type
+# ---------------------------------------------------------------------------
+
+
+def _render_cross_ref_summary(lines: list[str], cross_ref: dict) -> None:
+    """Append cross-reference findings as human-readable lines."""
+    if not cross_ref.get("entities_dir_found", False):
+        lines.append("\n\u274c Cross-reference skipped -- entities/ directory not found")
+        return
+
+    missing = cross_ref.get("missing_entity_pages", [])
+    ip_drift = cross_ref.get("ip_drift", [])
+    orphaned = cross_ref.get("orphaned_entity_pages", [])
+    unmapped = cross_ref.get("unmapped_servers", [])
+
+    issues = bool(missing or ip_drift or unmapped)
+    if not issues and not orphaned:
+        lines.append("\n\u2705 Cross-reference: all clear")
+        return
+
+    lines.append("")
+    if missing:
+        lines.append(f"\n\u26a0\ufe0f {len(missing)} service(s) without entity pages:")
+        for svc in missing:
+            href = svc.get("href", "")
+            h = f" ({href})" if href else ""
+            lines.append(f"   \u2022 {svc['name']}{h}")
+            lines.append(f'     \u2192 /update-infrastructure create "{svc["name"]}"')
+
+    if ip_drift:
+        lines.append(f"\n\u26a0\ufe0f {len(ip_drift)} IP drift(s) detected:")
+        for item in ip_drift:
+            lines.append(
+                f"   \u2022 {item['name']}:"
+                f" siteMonitor={item['site_monitor']},"
+                f" entity ip={item['entity_ip']} (MISMATCH)"
+            )
+            lines.append(f'     \u2192 /update-infrastructure fix-ip "{item["name"]}"')
+        if len(ip_drift) > 1:
+            lines.append("     \u2192 /update-infrastructure fix all")
+
+    if unmapped:
+        lines.append(f"\n\u26a0\ufe0f Unmapped server fields:")
+        for item in unmapped:
+            sug = item.get("suggestions", [])
+            sug_str = f" -- did you mean {', '.join(sug)}?" if sug else ""
+            lines.append(f"   \u2022 {item['name']}: server={item['server']}{sug_str}")
+
+    if orphaned:
+        lines.append(f"\n\u2139\ufe0f {len(orphaned)} orphaned entity page(s):")
+        for p in orphaned:
+            lines.append(f"   \u2022 {p}")
+        lines.append("   \u2192 /update-infrastructure cleanup")
+
+
+def _render_status(data: dict) -> str:
+    """Render a /update-infrastructure status check."""
+    cross_ref = data.get("cross_reference", {})
+    source = data.get("source", {})
+    lines = [
+        "\U0001f50d Infrastructure status check",
+        f"   Services in homepage: {source.get('services', 0)}",
+        f"   Subdomains: {source.get('subdomains', 0)}",
+    ]
+    _render_cross_ref_summary(lines, cross_ref)
+    return "\n".join(lines)
+
+
+def _render_create(result: dict) -> str:
+    """Render entity page creation result."""
+    if result.get("created"):
+        return f"\u2705 Entity page created: {result['path']}"
+    reason = result.get("reason", "unknown")
+    return f"\u274c Entity page not created: {reason}"
+
+
+def _render_fix_all(result: dict) -> str:
+    """Render batch IP fix result."""
+    fixed = result.get("fixed", [])
+    errors = result.get("errors", [])
+    lines: list[str] = []
+    if fixed:
+        for f in fixed:
+            lines.append(f"\u2705 Fixed: {f['name']} \u2192 {f['ip']}")
+    if errors:
+        for e in errors:
+            lines.append(f"\u26a0\ufe0f {e['name']}: {e['reason']}")
+    if not fixed and not errors:
+        lines.append("\u2139\ufe0f No IP drift found to fix")
+    return "\n".join(lines)
+
+
+def _render_fix_ip(result: dict) -> str:
+    """Render single IP fix result."""
+    if result.get("fixed"):
+        if result.get("dry_run"):
+            return f"\U0001f50d [DRY-RUN] Would fix {result.get('name', '?')} to {result.get('ip', '?')}"
+        return f"\u2705 IP fixed for {result.get('name', '?')} \u2192 {result.get('ip', '?')}"
+    return f"\u274c Fix failed: {result.get('reason', 'unknown')}"
+
+
+def _render_check(result: dict) -> str:
+    """Render a deep service check."""
+    name = result.get("name", "?")
+    lines: list[str] = [
+        f"\U0001f50d Service check: {name}",
+        f"   In homepage: {result.get('in_homepage', False)}",
+    ]
+    if result.get("homepage_group"):
+        lines.append(f"   Group: {result['homepage_group']}")
+    if result.get("homepage_href"):
+        lines.append(f"   Href: {result['homepage_href']}")
+    if result.get("homepage_site_monitor"):
+        lines.append(f"   Site monitor: {result['homepage_site_monitor']}")
+    if result.get("homepage_server"):
+        lines.append(f"   Server: {result['homepage_server']}")
+    lines.append(f"   Entity page: {result.get('has_entity_page', False)}")
+    if result.get("entity_page"):
+        lines.append(f"   Entity file: {result['entity_page']}")
+    if result.get("entity_ip"):
+        lines.append(f"   Entity IP: {result['entity_ip']}")
+    drift = result.get("ip_drift")
+    if drift:
+        lines.append(
+            f"\n\u26a0\ufe0f IP drift:"
+            f" siteMonitor={drift['site_monitor']},"
+            f" entity={drift['entity_ip']}"
+        )
+        lines.append(f'   \u2192 /update-infrastructure fix-ip "{name}"')
+    elif result.get("entity_ip"):
+        lines.append("\n\u2705 No IP drift detected")
+    return "\n".join(lines)
+
+
+def _render_cleanup(result: dict) -> str:
+    """Render orphaned entity page list."""
+    orphaned = result.get("orphaned_pages", [])
+    if not orphaned:
+        return "\u2705 No orphaned entity pages found"
+    lines = [f"\u2139\ufe0f {len(orphaned)} orphaned entity page(s):"]
+    for p in orphaned:
+        lines.append(f"   \u2795 {p}")
+    return "\n".join(lines)
+
+
+def _render_echo(intent: dict) -> str:
+    """Render an echo / unrecognised-command intent."""
+    return f"> {intent.get('result', {}).get('echoed_text', '')}"
+
+
+# Dispatch table: intent_type -> renderer(result_dict) -> human-readable string
+_INTENT_RENDERERS: dict[str, Any] = {
+    "create": _render_create,
+    "fix_all": _render_fix_all,
+    "fix_ip": _render_fix_ip,
+    "check": _render_check,
+    "cleanup": _render_cleanup,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -236,17 +462,18 @@ def _handle_update_tool(raw_args: str = "") -> str:
             ip_drift = cross_ref.get("ip_drift", [])
             item = next((i for i in ip_drift if i["name"].lower() == name.lower()), None)
             if item is None:
-                intent_result = {"fixed": False, "reason": f"no IP drift detected for {name}"}
+                intent_result = {"name": name, "fixed": False, "reason": f"no IP drift detected for {name}"}
             else:
                 new_ip = parser._extract_ip_from_url(item["site_monitor"])
                 if not new_ip:
                     intent_result = {
+                        "name": name,
                         "fixed": False,
                         "reason": f"could not extract IP from {item['site_monitor']}",
                     }
                 else:
                     r = parser.fix_entity_ip(wiki_root, name, new_ip, dry_run=dry_run)
-                    intent_result = {"fixed": r["fixed"], "dry_run": dry_run}
+                    intent_result = {"name": name, "fixed": r["fixed"], "dry_run": dry_run}
                     if r["fixed"] and not dry_run:
                         intent_result["path"] = r.get("path", "")
                         intent_result["ip"] = new_ip
