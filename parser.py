@@ -3,41 +3,29 @@
 import os
 import re
 import subprocess
-import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
 
+from . import config
 
-HOMEPAGE_REPO = "https://github.com/Skulldorom/homepage"
-REPO_CACHE = Path(tempfile.gettempdir()) / "hermes-homepage-sync"
+HOMEPAGE_REPO = config.HOMEPAGE_REPO
+REPO_CACHE = config.REPO_CACHE
 
 # Default subdomain patterns — each pattern must use group(1) to capture the subdomain label.
 # Override by setting SUBDOMAIN_PATTERNS to a comma-separated list of regex strings.
-_DEFAULT_SUBDOMAIN_PATTERNS = [r"https?://([a-z0-9-]+)\.skulldorom\.(xyz|com)"]
+_DEFAULT_SUBDOMAIN_PATTERNS = config.DEFAULT_SUBDOMAIN_PATTERNS
 
 # Default set of generic infrastructure/platform names that are NOT specific hosts.
 # Services whose slugified name matches one of these are filtered from "missing entity pages"
 # unless a matching entity page already exists for that name.
 # Extend via the NOISE_FILTER_NAMES env var (comma-separated list).
-_DEFAULT_GENERIC_INFRA_NAMES: frozenset[str] = frozenset({
-    "synology", "glances", "dozzle", "proxmox", "nginx", "authentik",
-    "traefik", "caddy", "haproxy", "portainer", "watchtower", "homepage",
-    "grafana", "prometheus", "loki", "influxdb", "telegraf", "netdata",
-    "unifi", "pihole", "adguard-home", "adguardhome", "wireguard", "tailscale",
-    "docker", "kubernetes", "k8s", "vaultwarden", "bitwarden",
-    "nextcloud", "jellyfin", "plex", "emby", "sonarr", "radarr",
-    "lidarr", "readarr", "prowlarr", "sabnzbd", "qbittorrent", "transmission",
-    "overseerr", "tautulli", "uptime-kuma", "changedetection",
-    "gitea", "forgejo", "gitlab", "immich", "photoprism", "paperless-ngx", "paperless",
-})
+_DEFAULT_GENERIC_INFRA_NAMES: frozenset[str] = config.DEFAULT_GENERIC_INFRA_NAMES
 
 # Frontmatter ``type`` values that indicate personal devices / people (not services).
 # Entity pages with these types are silently excluded from orphaned-page reports.
-_PERSONAL_DEVICE_TYPES: frozenset[str] = frozenset({
-    "person", "people", "phone", "tablet", "device", "mobile", "laptop",
-})
+_PERSONAL_DEVICE_TYPES: frozenset[str] = config.PERSONAL_DEVICE_TYPES
 
 
 def _parse_yaml(path: Path) -> dict:

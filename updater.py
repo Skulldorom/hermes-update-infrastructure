@@ -12,12 +12,11 @@ services update. Content never in homepage stays exactly as-is.
 """
 
 import hashlib
-import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import parser_wiki
+from . import config, parser_wiki
 
 
 def _hash_block(text: str) -> str:
@@ -202,8 +201,8 @@ AUTO_SECTION_TEMPLATES = {
     "topology": _build_topology_diagram,
 }
 
-MARKER_START = "<!-- HOMEPAGE_AUTO:"
-MARKER_END = "<!-- /HOMEPAGE_AUTO:"
+MARKER_START = config.MARKER_START
+MARKER_END = config.MARKER_END
 
 
 def update_wiki_page(page_path: str, data: dict, dry_run: bool = False) -> dict:
