@@ -37,7 +37,7 @@ The plugin will:
    - **Cross-Reference Findings** — entity page gaps, IP drift, orphaned pages, unmapped server fields
    - **Network Topology** — auto-generated Mermaid diagram from entity pages (renders natively in Obsidian)
 4. Log the sync to `log.md`
-5. Return a sync report with topology summary, cross-reference findings, elapsed time, and the result of any inline command
+5. For default `/update-infrastructure`, hand off a structured review prompt to the agent loop (agent summarizes + follows up); inline sub-commands still return direct command output
 
 ### Inline commands
 

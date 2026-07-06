@@ -8,7 +8,10 @@ from pathlib import Path
 
 import yaml
 
-from . import config
+try:
+    from . import config
+except ImportError:  # pragma: no cover - supports direct module loading in tests
+    import config  # type: ignore
 
 HOMEPAGE_REPO = config.HOMEPAGE_REPO
 REPO_CACHE = config.REPO_CACHE

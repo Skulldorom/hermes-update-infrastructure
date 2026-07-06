@@ -16,7 +16,11 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import config, parser_wiki
+try:
+    from . import config, parser_wiki
+except ImportError:  # pragma: no cover - supports direct module loading in tests
+    import config  # type: ignore
+    import parser_wiki  # type: ignore
 
 
 def _hash_block(text: str) -> str:

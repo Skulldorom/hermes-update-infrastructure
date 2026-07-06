@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 _PKG = "update_infrastructure"
-_REPO = Path("/home/hermes/workspace/hermes-update-infrastructure")
+_REPO = Path(__file__).resolve().parents[1]
 
 if _PKG not in sys.modules:
     sys.path.insert(0, str(_REPO.parent))
