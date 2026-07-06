@@ -25,6 +25,7 @@ Type `/update-infrastructure` (or the short aliases `/update-infra` / `/sync-inf
 /update-infra create "Bento PDF"
 /sync-infra fix all
 /update-infrastructure status
+/update-infrastructure help
 ```
 
 The plugin will:
@@ -53,7 +54,8 @@ Text typed after the command is parsed for known intents and acted on. Unrecogni
 | `check "Service Name"` | Deep-check one service across homepage, entity page, and cross-ref |
 | `cleanup` | List orphaned entity pages with removal instructions |
 | `status` | Return just the cross-reference summary (skips wiki update) |
-| *(anything else)* | Echoed as extra context — current behaviour |
+| `help` / `--help` / `-h` | Show usage, sub-commands, and environment variables |
+| *(anything else)* | Echoed as extra context, with hint to try `help` |
 
 Commands are **case-insensitive** and match on prefix/keyword, not exact string.
 

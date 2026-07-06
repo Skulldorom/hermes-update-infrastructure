@@ -73,6 +73,9 @@ _INTENT_PATTERNS: list[tuple[re.Pattern, str, int | None]] = [
     (re.compile(r'^status\b', re.IGNORECASE), "status", None),
     # json -- escape hatch: raw JSON output, no review prompt
     (re.compile(r'^json\b', re.IGNORECASE), "json", None),
+    # help / --help / -h
+    (re.compile(r'^(?:--)?help$', re.IGNORECASE), "help", None),
+    (re.compile(r'^-h$', re.IGNORECASE), "help", None),
 ]
 
 
@@ -376,7 +379,81 @@ def _render_cleanup(result: dict) -> str:
 
 def _render_echo(intent: dict) -> str:
     """Render an echo / unrecognised-command intent."""
-    return f"> {intent.get('result', {}).get('echoed_text', '')}"
+    text = intent.get("result", {}).get("echoed_text", "")
+    return (
+        f"> {text}\n\n"
+        f'ℹ️ Unrecognised command. Try `/update-infrastructure help`'
+        f" for available sub-commands."
+    )
+
+
+def _render_help(result: dict) -> str:
+    """Render a comprehensive help / usage message."""
+    project_url = (
+        "https://github.com/Skulldorom/hermes-update-infrastructure"
+    )
+    wiki_path = os.environ.get("WIKI_PATH", "~/wiki")
+
+    lines = [
+        "",
+        "┌─────────────────────────────────────────────────────────────┐",
+        "│               /update-infrastructure  v2.3.2                │",
+        "│  Sync homelab wiki from homepage dashboard config            │",
+        "└─────────────────────────────────────────────────────────────┘",
+        "",
+        "🔗 PROJECT",
+        f"   {project_url}",
+        "",
+        "🔄 COMMANDS (aliases: /update-infra, /sync-infra)",
+        "",
+        "   /update-infrastructure",
+        "      Full sync: fetch homepage → cross-ref → update wiki",
+        "      → hands off review prompt for agent follow-up",
+        "",
+        "   /update-infrastructure status",
+        "      Cross-reference check only (skips wiki update)",
+        "",
+        "   /update-infrastructure create \"Service Name\"",
+        "      Scaffold an entities/<slug>.md page with sensible defaults",
+        "",
+        "   /update-infrastructure check \"Service Name\"",
+        "      Deep-check one service: homepage + entity page + IP drift",
+        "",
+        "   /update-infrastructure fix-ip \"Service Name\" [--dry-run]",
+        "      Repair IP drift for one service (--dry-run to preview)",
+        "",
+        "   /update-infrastructure fix all",
+        "      Repair all IP drift in one go",
+        "",
+        "   /update-infrastructure cleanup",
+        "      List orphaned entity pages (not in homepage)",
+        "",
+        "   /update-infrastructure json    (or 'tool')",
+        "      Raw JSON output — escape hatch for scripting",
+        "",
+        "   /update-infrastructure help    (or --help, -h)",
+        "      Show this help message",
+        "",
+        "⚙️  ENVIRONMENT",
+        "",
+        f"   WIKI_PATH          Wiki root (default: {wiki_path})",
+        "   SUBDOMAIN_PATTERNS  Comma-separated regex list for subdomain extraction",
+        "   NOISE_FILTER_NAMES  Extra generic names to suppress in cross-ref",
+        "   SERVER_ALIASES      Short-name→entity mappings (key=val|val,...)",
+        "   SUPPRESS_ENTITY_CHECK  Service names to skip in entity checks",
+        "",
+        "📂 SYNC RULES",
+        "",
+        "   • Added in homepage    → added to wiki",
+        "   • Removed from homepage → removed from wiki",
+        "   • Changed in homepage  → updated in wiki",
+        "   • Only in wiki          → preserved untouched",
+        "",
+        "   Auto sections wrapped in <!-- HOMEPAGE_AUTO: --> markers.",
+        "   Everything outside those markers is your manual territory.",
+        "",
+    ]
+    return "\n".join(lines)
 
 
 # Dispatch table: intent_type -> renderer(result_dict) -> human-readable string
@@ -386,6 +463,7 @@ _INTENT_RENDERERS: dict[str, Any] = {
     "fix_ip": _render_fix_ip,
     "check": _render_check,
     "cleanup": _render_cleanup,
+    "help": _render_help,
 }
 
 
@@ -609,6 +687,16 @@ def _handle_update_tool(raw_args: str = "") -> str:
                            "subdomains": len(data.get("subdomains", []))},
                 "cross_reference": cross_ref,
                 "intent": {"type": "status"},
+            })
+
+        # --- help intent: no sync needed, return immediately ---
+        if intent == "help":
+            return json.dumps({
+                "sync_completed_at": started_at,
+                "elapsed_seconds": 0,
+                "wiki_file": str(wiki_root / WIKI_PAGE),
+                "changed": False,
+                "intent": {"type": "help", "result": {}},
             })
 
         # --- Full sync pipeline ---
