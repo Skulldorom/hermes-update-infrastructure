@@ -13,6 +13,7 @@ services update. Content never in homepage stays exactly as-is.
 
 import hashlib
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -266,6 +267,14 @@ def update_wiki_page(page_path: str, data: dict, dry_run: bool = False) -> dict:
             sections_added.append(section_name)
 
     hash_after = _hash_block(updated)
+
+    # Bump frontmatter `updated:` date when content changes
+    if updated != original:
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        updated_pattern = re.compile(r"^(updated:\s*).*$", re.MULTILINE)
+        if updated_pattern.search(updated):
+            updated = updated_pattern.sub(rf"\g<1>{today}", updated)
+            hash_after = _hash_block(updated)
 
     if updated != original:
         if not dry_run:
