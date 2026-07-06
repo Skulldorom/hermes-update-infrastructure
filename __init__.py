@@ -7,7 +7,7 @@ Wiki content never in homepage is preserved untouched.
 Provides three interfaces:
 - update_infrastructure tool (infra toolset) -- returns review prompt by default, JSON with "json"/"tool"
 - update_infrastructure_review tool (infra toolset) -- always returns a review prompt
-- /update-infrastructure slash command -- renders human-readable output
+- /update-infrastructure slash command -- injects review prompt into the agent loop by default
 
 Default (no args): returns a structured review prompt for agent follow-up.
 Escape hatch: pass "json" or "tool" for raw JSON output.
@@ -34,8 +34,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from . import config, parser, updater
-from . import parser_wiki
+try:
+    from . import config, parser, updater
+    from . import parser_wiki
+except ImportError:  # pragma: no cover - supports direct module loading in tests
+    import config  # type: ignore
+    import parser  # type: ignore
+    import updater  # type: ignore
+    import parser_wiki  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -139,28 +145,8 @@ def _get_wiki_path() -> Path:
     return Path(wiki_root)
 
 
-def _handle_update(raw_args: str) -> str:
-    """Handler for /update-infrastructure slash command.
-
-    Renders a human-readable summary from the JSON output so the user
-    sees a concise report without raw JSON in the terminal.
-
-    Pass ``"tool"`` as *raw_args* to get raw JSON output with no human
-    rendering (escape hatch for scripting / integration).
-    """
-    raw = raw_args or ""
-    if raw.strip().lower().startswith("tool"):
-        return _handle_update_tool(raw_args)
-
-    json_str = _handle_update_tool(raw_args)
-    try:
-        data = json.loads(json_str)
-    except json.JSONDecodeError:
-        return json_str  # fallback to raw
-
-    if "error" in data:
-        return f"\u26a0\ufe0f Sync failed: {data['error']}"
-
+def _render_update_output(data: dict) -> str:
+    """Render a human-readable slash-command response from structured sync data."""
     lines: list[str] = []
     elapsed = data.get("elapsed_seconds", 0)
     changed = data.get("changed", False)
@@ -214,6 +200,32 @@ def _handle_update(raw_args: str) -> str:
                 lines.append(f"\n🖥️ Topology: {mc} machines ({cat_str})")
 
     return "\n".join(lines)
+
+
+def _handle_update(raw_args: str) -> str:
+    """Handler for /update-infrastructure slash command.
+
+    Renders a human-readable summary from the JSON output so the user
+    sees a concise report without raw JSON in the terminal.
+
+    Pass ``"tool"`` or ``"json"`` as *raw_args* to get raw JSON output
+    (escape hatch for scripting / integration).
+    """
+    raw = raw_args or ""
+    raw_l = raw.strip().lower()
+    if raw_l.startswith("tool") or raw_l.startswith("json"):
+        return _handle_update_tool(raw_args)
+
+    json_str = _handle_update_tool(raw_args)
+    try:
+        data = json.loads(json_str)
+    except json.JSONDecodeError:
+        return json_str  # fallback to raw
+
+    if "error" in data:
+        return f"\u26a0\ufe0f Sync failed: {data['error']}"
+
+    return _render_update_output(data)
 
 
 # ---------------------------------------------------------------------------
@@ -769,6 +781,37 @@ def register(ctx):
     """Register the /update-infrastructure slash command and update_infrastructure tool."""
     description = "Sync homelab wiki from homepage dashboard config"
 
+    def _handle_update_with_inject(raw_args: str) -> str:
+        """Slash command wrapper that hands default sync output to the agent loop."""
+        raw = raw_args or ""
+        raw_l = raw.strip().lower()
+        if raw_l.startswith("tool") or raw_l.startswith("json"):
+            return _handle_update_tool(raw_args)
+
+        result = _handle_update_tool(raw_args)
+        try:
+            data = json.loads(result)
+        except json.JSONDecodeError:
+            inject = getattr(ctx, "inject_message", None)
+            if callable(inject):
+                inject(result)
+                return "🔄 Sync complete. Handing off results to agent for review..."
+            return result
+
+        if "error" in data:
+            return f"⚠️ Sync failed: {data['error']}"
+
+        intent = (data.get("intent") or {}).get("type")
+        if intent == "none":
+            review_prompt = _build_review_prompt(data)
+            inject = getattr(ctx, "inject_message", None)
+            if callable(inject):
+                inject(review_prompt)
+                return "🔄 Sync complete. Handing off results to agent for review..."
+            return review_prompt
+
+        return _render_update_output(data)
+
     # ── Tool registration (primary interface for LLM agent loop) ──
     ctx.register_tool(
         name="update_infrastructure",
@@ -829,14 +872,14 @@ def register(ctx):
     # ── Slash command (backward-compatible convenience) ──
     ctx.register_command(
         "update-infrastructure",
-        handler=_handle_update,
+        handler=_handle_update_with_inject,
         description=description,
     )
 
     # Register short aliases where the registrar permits; ignore silently if not.
     for alias in ("update-infra", "sync-infra"):
         try:
-            ctx.register_command(alias, handler=_handle_update, description=description)
+            ctx.register_command(alias, handler=_handle_update_with_inject, description=description)
         except Exception:
             pass
 
@@ -845,4 +888,3 @@ def register(ctx):
         "(tools: update_infrastructure, update_infrastructure_review;"
         " command: /update-infrastructure)"
     )
-

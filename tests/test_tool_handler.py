@@ -64,6 +64,20 @@ class TestToolHandlerJSONShape:
         mock.parse_entity_pages.return_value = {"machines": []}
         return mock
 
+    def test_default_returns_review_prompt(self, tmp_wiki):
+        mp = self._make_mock_parser()
+        mu = self._make_mock_updater()
+        mw = self._make_mock_parser_wiki()
+
+        with patch.dict(os.environ, {"WIKI_PATH": str(tmp_wiki)}), \
+             patch("update_infrastructure.parser", mp), \
+             patch("update_infrastructure.updater", mu), \
+             patch("update_infrastructure.parser_wiki", mw):
+            prompt = _handle_update_tool("")
+
+        assert "# Infrastructure Sync Review" in prompt
+        assert "follow up with the user" in prompt
+
     def test_returns_valid_json(self, tmp_wiki):
         mp = self._make_mock_parser()
         mu = self._make_mock_updater()
@@ -73,7 +87,7 @@ class TestToolHandlerJSONShape:
              patch("update_infrastructure.parser", mp), \
              patch("update_infrastructure.updater", mu), \
              patch("update_infrastructure.parser_wiki", mw):
-            data = json.loads(_handle_update_tool(""))
+            data = json.loads(_handle_update_tool("json"))
 
         for key in ("sync_completed_at", "elapsed_seconds", "wiki_file",
                      "changed", "sections", "source", "cross_reference",
@@ -90,7 +104,7 @@ class TestToolHandlerJSONShape:
              patch("update_infrastructure.parser", mp), \
              patch("update_infrastructure.updater", mu), \
              patch("update_infrastructure.parser_wiki", mw):
-            data = json.loads(_handle_update_tool(""))
+            data = json.loads(_handle_update_tool("json"))
 
         assert data["source"]["services"] == 1
         assert data["source"]["subdomains"] == 1
@@ -104,7 +118,7 @@ class TestToolHandlerJSONShape:
              patch("update_infrastructure.parser", mp), \
              patch("update_infrastructure.updater", mu), \
              patch("update_infrastructure.parser_wiki", mw):
-            data = json.loads(_handle_update_tool(""))
+            data = json.loads(_handle_update_tool("json"))
 
         assert data["topology"]["machine_count"] == 0
         assert data["topology"]["categories"] == {}
@@ -129,12 +143,12 @@ class TestToolHandlerJSONShape:
              patch("update_infrastructure.parser", mp), \
              patch("update_infrastructure.updater", mu), \
              patch("update_infrastructure.parser_wiki", mw):
-            data = json.loads(_handle_update_tool(""))
+            data = json.loads(_handle_update_tool("json"))
 
         assert data["topology"]["machine_count"] == 2
         assert data["topology"]["connections"] == [{"parent": "Beast", "child": "Dozzle"}]
 
-    def test_intent_none_by_default(self, tmp_wiki):
+    def test_json_escape_hatch_intent(self, tmp_wiki):
         mp = self._make_mock_parser()
         mu = self._make_mock_updater()
         mw = self._make_mock_parser_wiki()
@@ -143,9 +157,9 @@ class TestToolHandlerJSONShape:
              patch("update_infrastructure.parser", mp), \
              patch("update_infrastructure.updater", mu), \
              patch("update_infrastructure.parser_wiki", mw):
-            data = json.loads(_handle_update_tool(""))
+            data = json.loads(_handle_update_tool("json"))
 
-        assert data["intent"]["type"] == "none"
+        assert data["intent"]["type"] == "json"
         assert data["intent"]["result"] is None
 
     def test_error_handling(self, tmp_wiki):
