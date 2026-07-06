@@ -98,3 +98,13 @@ class TestParseIntent:
     def test_partial_match_no_false_positive(self):
         intent, params = _parse_intent("stat")
         assert intent == "echo"
+
+    def test_tool_intent(self):
+        intent, params = _parse_intent("tool")
+        assert intent == "tool"
+        assert params == {}
+
+    def test_tool_intent_case_insensitive(self):
+        intent, params = _parse_intent("TOOL")
+        assert intent == "tool"
+        assert params == {}
