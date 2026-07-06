@@ -36,9 +36,8 @@ The plugin will:
    - **Subdomain Table** — complete subdomain → service → URL → monitor mapping
    - **Cross-Reference Findings** — entity page gaps, IP drift, orphaned pages, unmapped server fields
    - **Network Topology** — auto-generated Mermaid diagram from entity pages (renders natively in Obsidian)
-4. Generate and save `assets/topology.svg` — a standalone SVG network diagram with color-coded zones
-5. Log the sync to `log.md`
-6. Return a sync report with topology summary, cross-reference findings, elapsed time, and the result of any inline command
+4. Log the sync to `log.md`
+5. Return a sync report with topology summary, cross-reference findings, elapsed time, and the result of any inline command
 
 ### Inline commands
 
@@ -89,7 +88,7 @@ Auto-generated sections are wrapped in `<!-- HOMEPAGE_AUTO: -->` markers — the
 
 ## Network Topology
 
-On every sync the plugin generates two topology views from your `entities/*.md` entity pages:
+On every sync the plugin generates a Mermaid topology diagram from your `entities/*.md` entity pages:
 
 ### Mermaid Diagram (in-wiki)
 
@@ -104,13 +103,9 @@ A `graph TD` diagram embedded directly in `guides/homelab-infrastructure.md`. Re
 
 Hosts with child containers show as parent boxes with child nodes nested inside. Edges link hosts → children.
 
-### SVG Export (standalone)
-
-A full standalone SVG is written to `wiki/assets/topology.svg` on every sync. Same color scheme and layout as the Mermaid diagram, designed for embedding in any page via `![Topology](assets/topology.svg)`.
-
 ### Entity Page Format
 
-Both diagrams read from the same entity pages used by cross-reference checks. For topology rendering, these frontmatter fields are read:
+The diagram reads from the same entity pages used by cross-reference checks. For topology rendering, these frontmatter fields are read:
 
 ```yaml
 ---
@@ -137,7 +132,7 @@ Category mapping rules:
 | `__init__.py` | Plugin registration, intent parsing, main command handler |
 | `parser.py` | Homepage YAML parsing (`services.yaml`, `bookmarks.yaml`), cross-reference checks, entity page scaffolding, IP repair |
 | `updater.py` | Wiki page generation with `<!-- HOMEPAGE_AUTO: -->` markers, log writing |
-| `topology.py` | Mermaid `graph TD` + standalone SVG topology diagrams from entity pages |
+| `topology.py` | Mermaid `graph TD` topology diagram from entity pages |
 | `parser_wiki.py` | Entity page frontmatter parsing for topology data |
 | `plugin.yaml` | Plugin manifest (name, version, description) |
 
@@ -269,9 +264,6 @@ diff wiki page ──→ add/update/skip auto sections
       │
       ▼
 write page + log.md
-      │
-      ▼
-generate topology.svg ──→ write to wiki/assets/
       │
       ▼
 execute intent (create / fix-ip / fix all / check / cleanup)
