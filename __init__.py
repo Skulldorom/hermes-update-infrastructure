@@ -17,12 +17,12 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import parser, updater
+from . import config, parser, updater
 from . import parser_wiki
 
 logger = logging.getLogger(__name__)
 
-WIKI_PAGE = "guides/homelab-infrastructure.md"
+WIKI_PAGE = config.WIKI_PAGE
 
 # ---------------------------------------------------------------------------
 # Intent parsing
@@ -386,7 +386,7 @@ def _format_cross_reference(cross_ref: dict) -> str:
 
 def _get_wiki_path() -> Path:
     """Resolve the wiki root path."""
-    wiki_root = os.environ.get("WIKI_PATH", os.path.expanduser("~/wiki"))
+    wiki_root = os.environ.get("WIKI_PATH", os.path.expanduser(config.DEFAULT_WIKI_ROOT))
     return Path(wiki_root)
 
 
