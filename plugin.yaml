@@ -1,5 +1,5 @@
 name: update-infrastructure
-version: 2.2.0
+version: 2.2.1
 description: >
   update_infrastructure tool (infra toolset) + /update-infrastructure
   (aliases: /update-infra, /sync-infra) — sync homelab wiki from homepage
