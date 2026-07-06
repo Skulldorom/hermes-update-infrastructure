@@ -1,9 +1,9 @@
 name: update-infrastructure
-version: 2.1.5
+version: 2.2.0
 description: >
-  /update-infrastructure (aliases: /update-infra, /sync-infra) —
-  sync homelab wiki from homepage dashboard config, with noise-filtered
-  cross-reference checks, entity page scaffolding, IP drift repair, and
-  intent-driven inline commands.
+  update_infrastructure tool (infra toolset) + /update-infrastructure
+  (aliases: /update-infra, /sync-infra) — sync homelab wiki from homepage
+  dashboard config, with noise-filtered cross-reference checks, entity
+  page scaffolding, IP drift repair, and intent-driven inline commands.
 author: Skulldorom + Hermes Coder Agent
 provides_hooks: []
