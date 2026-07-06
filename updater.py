@@ -16,7 +16,7 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import parser_wiki, topology as topology_mod
+from . import parser_wiki
 
 
 def _hash_block(text: str) -> str:
@@ -190,8 +190,8 @@ def _build_topology_diagram(data: dict) -> str:
     if not machines_data.get("machines"):
         return "*(No entity pages found — run `/update-infrastructure` after adding `entities/*.md` files)*\n"
 
-    mermaid_code = topology_mod.build_mermaid_topology(machines_data)
-    return f"```mermaid\n{mermaid_code}\n```\n"
+    # SVG topology diagram (generated externally from Mermaid — no inline fence)
+    return "![Network Topology](../assets/topology.svg)\n"
 
 
 AUTO_SECTION_TEMPLATES = {
