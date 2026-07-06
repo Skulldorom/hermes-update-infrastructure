@@ -2,7 +2,7 @@
 
 Hermes Agent plugin — `/update-infrastructure` slash command. Syncs your homelab wiki from your [Homepage](https://gethomepage.dev/) dashboard config.
 
-![Version](https://img.shields.io/badge/version-2.3.2-blue)
+![Version](https://img.shields.io/badge/version-2.3.3-blue)
 
 ## Install
 
