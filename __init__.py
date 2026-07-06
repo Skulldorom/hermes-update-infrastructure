@@ -1,16 +1,21 @@
-"""update-infrastructure plugin -- update_infrastructure tool + /update-infrastructure command.
+"""update-infrastructure plugin -- update_infrastructure / update_infrastructure_review tools + /update-infrastructure command.
 
 Syncs the homelab wiki from the homepage dashboard config.
 Homepage is the authority for services it knows about.
 Wiki content never in homepage is preserved untouched.
 
-Provides two interfaces:
-- update_infrastructure tool (infra toolset) -- returns structured JSON for LLM processing
-- /update-infrastructure slash command -- renders human-readable summary directly
+Provides three interfaces:
+- update_infrastructure tool (infra toolset) -- returns review prompt by default, JSON with "json"/"tool"
+- update_infrastructure_review tool (infra toolset) -- always returns a review prompt
+- /update-infrastructure slash command -- renders human-readable output
+
+Default (no args): returns a structured review prompt for agent follow-up.
+Escape hatch: pass "json" or "tool" for raw JSON output.
 
 Sub-commands (via intent parsing):
-  /update-infrastructure                  -> full sync with human-readable report
-  /update-infrastructure tool             -> raw JSON output (for scripting)
+  /update-infrastructure                  -> full sync with review prompt
+  /update-infrastructure json             -> raw JSON output (escape hatch)
+  /update-infrastructure tool             -> raw JSON output (backward compat)
   /update-infrastructure status           -> cross-reference check only
   /update-infrastructure create NAME      -> scaffold an entity page
   /update-infrastructure fix-ip NAME      -> repair IP drift for one service
@@ -18,6 +23,7 @@ Sub-commands (via intent parsing):
   /update-infrastructure check NAME       -> deep-check one service
   /update-infrastructure cleanup          -> list orphaned entity pages
 """
+
 
 import json
 import logging
@@ -59,6 +65,8 @@ _INTENT_PATTERNS: list[tuple[re.Pattern, str, int | None]] = [
     (re.compile(r'^cleanup\b', re.IGNORECASE), "cleanup", None),
     # status
     (re.compile(r'^status\b', re.IGNORECASE), "status", None),
+    # json -- escape hatch: raw JSON output, no review prompt
+    (re.compile(r'^json\b', re.IGNORECASE), "json", None),
 ]
 
 
@@ -370,6 +378,192 @@ _INTENT_RENDERERS: dict[str, Any] = {
 
 
 # ---------------------------------------------------------------------------
+# Review prompt builder (for agent handoff)
+# ---------------------------------------------------------------------------
+
+def _build_review_prompt(data: dict) -> str:
+    """Build a structured review prompt from sync result data.
+
+    Returned by the default (no-intent) path so the LLM agent can
+    summarise changes, review cross-reference issues, topology drift,
+    and follow up with the user via clarify().
+    """
+    elapsed = data.get("elapsed_seconds", 0)
+    changed = data.get("changed", False)
+    sections = data.get("sections", {})
+    source = data.get("source", {})
+    cross_ref = data.get("cross_reference", {})
+    topology = data.get("topology", {})
+
+    svc_count = source.get("services", 0)
+    sub_count = source.get("subdomains", 0)
+    wiki_file = data.get("wiki_file", "?")
+
+    lines = [
+        "# Infrastructure Sync Review",
+        "",
+        "## Summary",
+    ]
+
+    if changed:
+        updated = sections.get("updated", [])
+        added = sections.get("added", [])
+        lines.append(
+            f"↕ Synced in {elapsed}s — {svc_count} services,"
+            f" {sub_count} subdomains → {wiki_file}"
+        )
+        if updated:
+            lines.append(f"Updated sections: {', '.join(updated)}")
+        if added:
+            lines.append(f"Added sections: {', '.join(added)}")
+    else:
+        lines.append(f"✅ Synced in {elapsed}s — wiki is up to date (no changes)")
+        lines.append(
+            f"   Source: {svc_count} services, {sub_count} subdomains → {wiki_file}"
+        )
+
+    # ── Cross-reference report ──
+    lines.append("")
+    lines.append("## Cross-Reference Findings")
+
+    entities_found = cross_ref.get("entities_dir_found", False)
+    if not entities_found:
+        lines.append(
+            "❌ Cross-reference skipped — entities/ directory not found"
+        )
+    else:
+        missing = cross_ref.get("missing_entity_pages", [])
+        ip_drift = cross_ref.get("ip_drift", [])
+        orphaned = cross_ref.get("orphaned_entity_pages", [])
+        unmapped = cross_ref.get("unmapped_servers", [])
+
+        if not missing and not ip_drift and not unmapped and not orphaned:
+            lines.append("✅ All clear — no issues found")
+        else:
+            if missing:
+                lines.append("")
+                lines.append(
+                    f"⚠️ {len(missing)} service(s) without entity pages:"
+                )
+                for svc in missing:
+                    href = svc.get("href", "")
+                    h = f" ({href})" if href else ""
+                    lines.append(f"  • {svc['name']}{h}")
+                    lines.append(
+                        f'    → /update-infrastructure create "{svc["name"]}"'
+                    )
+
+            if ip_drift:
+                lines.append("")
+                lines.append(f"⚠️ {len(ip_drift)} IP drift(s) detected:")
+                for item in ip_drift:
+                    lines.append(
+                        f"  • {item['name']}:"
+                        f" siteMonitor={item['site_monitor']},"
+                        f" entity ip={item['entity_ip']} (MISMATCH)"
+                    )
+                    lines.append(
+                        f'    → /update-infrastructure fix-ip "{item["name"]}"'
+                    )
+                if len(ip_drift) > 1:
+                    lines.append(
+                        "    → /update-infrastructure fix all (repair all at once)"
+                    )
+
+            if unmapped:
+                lines.append("")
+                lines.append("⚠️ Unmapped server fields:")
+                for item in unmapped:
+                    sug = item.get("suggestions", [])
+                    sug_str = (
+                        f" — did you mean {', '.join(sug)}?" if sug else ""
+                    )
+                    lines.append(
+                        f"  • {item['name']}:"
+                        f" server={item['server']}{sug_str}"
+                    )
+
+            if orphaned:
+                lines.append("")
+                lines.append(
+                    f"ℹ️ {len(orphaned)} orphaned entity page(s):"
+                )
+                for p in orphaned:
+                    lines.append(f"  • {p}")
+                lines.append(
+                    "  → /update-infrastructure cleanup for details"
+                )
+
+    # ── Topology ──
+    lines.append("")
+    lines.append("## Topology")
+    mc = topology.get("machine_count", 0)
+    if mc:
+        cats = topology.get("categories", {})
+        cat_str = ", ".join(
+            f"{k}: {v}" for k, v in sorted(cats.items())
+        )
+        lines.append(f"🖥️ {mc} machines ({cat_str})")
+
+        connections = topology.get("connections", [])
+        if connections:
+            lines.append("")
+            lines.append("Parent → child relationships:")
+            for conn in connections:
+                lines.append(
+                    f"  • {conn['parent']} → {conn['child']}"
+                )
+    else:
+        lines.append(
+            "*(No entity pages found — topology unavailable)*"
+        )
+
+    # ── Agent follow-up instructions ──
+    lines.append("")
+    lines.append("## Follow-Up Instructions")
+    lines.append("")
+    lines.append(
+        "The sync is complete. Review the findings above and follow up"
+        " with the user:"
+    )
+    lines.append("")
+
+    has_issues = False
+    if entities_found:
+        if cross_ref.get("missing_entity_pages"):
+            has_issues = True
+            lines.append(
+                '- Ask: "Found services without entity pages —'
+                ' want me to create them?"'
+            )
+        if cross_ref.get("ip_drift"):
+            has_issues = True
+            lines.append(
+                '- Ask: "IP drift detected — want me to fix it?"'
+            )
+        if cross_ref.get("orphaned_entity_pages"):
+            has_issues = True
+            lines.append(
+                '- Ask: "Orphaned entity pages found —'
+                ' want me to clean them up?"'
+            )
+        if cross_ref.get("unmapped_servers"):
+            has_issues = True
+            lines.append(
+                '- Ask: "Some server fields don\'t match known machines'
+                ' — need help mapping them?"'
+            )
+
+    if not has_issues:
+        lines.append(
+            '- Report: "Wiki is up to date, no issues found.'
+            ' Topology looks clean."'
+        )
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # Tool handler (returns JSON for LLM agent loop)
 # ---------------------------------------------------------------------------
 
@@ -514,7 +708,7 @@ def _handle_update_tool(raw_args: str = "") -> str:
 
         elapsed = round(time.monotonic() - t_start, 2)
 
-        return json.dumps({
+        result_dict = {
             "sync_completed_at": started_at,
             "elapsed_seconds": elapsed,
             "wiki_file": str(wiki_root / WIKI_PAGE),
@@ -531,7 +725,13 @@ def _handle_update_tool(raw_args: str = "") -> str:
                 "type": intent,
                 "result": intent_result,
             },
-        })
+        }
+
+        if intent in ("none",):
+            # Default: return a structured review prompt for the LLM agent
+            return _build_review_prompt(result_dict)
+
+        return json.dumps(result_dict)
 
     except Exception as e:
         logger.exception("update_infrastructure tool failed")
@@ -541,6 +741,24 @@ def _handle_update_tool(raw_args: str = "") -> str:
             "elapsed_seconds": elapsed,
             "error": str(e),
         })
+
+
+# ---------------------------------------------------------------------------
+# Review tool handler (always returns a review prompt)
+# ---------------------------------------------------------------------------
+
+def _handle_update_and_review(raw_args: str = "") -> str:
+    """Handler for update_infrastructure_review — always returns a review prompt.
+
+    Runs the full sync pipeline and returns a structured markdown prompt
+    that tells the LLM agent to summarise changes, review cross-reference
+    and topology findings, and follow up with the user via clarify().
+
+    Unlike ``_handle_update_tool()``, this always produces the review
+    prompt — even when sub-commands are passed.  For raw JSON, use the
+    ``update_infrastructure`` tool with ``"json"`` or ``"tool"`` intent.
+    """
+    return _handle_update_tool(raw_args)
 
 
 # ---------------------------------------------------------------------------
@@ -558,11 +776,13 @@ def register(ctx):
         schema={
             "name": "update_infrastructure",
             "description": (
-                "Sync homelab wiki from homepage dashboard config -- fetches homepage "
-                "services, parses entity pages, cross-references, detects IP drift, "
-                "and updates the wiki. Pass raw_args for sub-commands like "
-                '"status", "check pihole", "create mediawiki", '
-                '"fix-ip pihole", "fix all", "cleanup".'
+                "Sync homelab wiki from homepage dashboard config and return a "
+                "structured review prompt by default. Fetches homepage services, "
+                "parses entity pages, cross-references, detects IP drift, and "
+                "updates the wiki. Pass 'json' or 'tool' as raw_args for raw "
+                "JSON output (escape hatch). Sub-commands: "
+                '"status", "check <name>", "create <name>", '
+                '"fix-ip <name>", "fix all", "cleanup".'
             ),
             "parameters": {
                 "type": "object",
@@ -570,7 +790,9 @@ def register(ctx):
                     "raw_args": {
                         "type": "string",
                         "description": (
-                            'Optional sub-command: "status", "check <name>", '
+                            'Optional sub-command or "json"/"tool" for raw output. '
+                            'Default (no args): returns a review prompt. '
+                            'Sub-commands: "status", "check <name>", '
                             '"create <name>", "fix-ip <name>", '
                             '"fix all", "cleanup"'
                         ),
@@ -579,7 +801,29 @@ def register(ctx):
             },
         },
         handler=_handle_update_tool,
-        description="Sync homelab wiki from homepage dashboard config",
+        description="Sync homelab wiki from homepage — returns review prompt by default",
+    )
+
+    # ── Review tool (always returns a review prompt) ──
+    ctx.register_tool(
+        name="update_infrastructure_review",
+        toolset="infra",
+        schema={
+            "name": "update_infrastructure_review",
+            "description": (
+                "Run the infrastructure sync and return a structured review "
+                "prompt. The prompt summarises changes, cross-reference issues, "
+                "IP drift, orphaned pages, topology, and instructs the agent "
+                "to follow up with the user via clarify(). Always returns a "
+                "readable prompt — never raw JSON."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+            },
+        },
+        handler=_handle_update_and_review,
+        description="Sync + review: returns a structured agent follow-up prompt",
     )
 
     # ── Slash command (backward-compatible convenience) ──
@@ -598,6 +842,7 @@ def register(ctx):
 
     logger.info(
         "update-infrastructure plugin registered "
-        "(tool: update_infrastructure, command: /update-infrastructure)"
+        "(tools: update_infrastructure, update_infrastructure_review;"
+        " command: /update-infrastructure)"
     )
 
