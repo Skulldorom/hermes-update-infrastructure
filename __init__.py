@@ -175,20 +175,10 @@ def _render_update_output(data: dict) -> str:
             icon = "✅" if not changed else "↕"
             lines.append(f"{icon} Homelab infrastructure synced ({elapsed}s)")
             lines.append(f"   Source: {svc_count} services, {sub_count} subdomains")
-            lines.append(f"   Wiki: {data.get('wiki_file', '?')}")
+            lines.append(f"   Generated: {data.get('generated_file', '?')}")
 
-            sections = data.get("sections", {})
-            updated = sections.get("updated", [])
-            added = sections.get("added", [])
-            if updated or added:
-                lines.append("")
-                lines.append("📝 Changes:")
-                if updated:
-                    lines.append(f"   Updated: {', '.join(updated)}")
-                if added:
-                    lines.append(f"   Added: {', '.join(added)}")
-            elif changed:
-                lines.append("\n📝 Sections changed (detail unavailable)")
+            if changed:
+                lines.append("\n📝 Generated data file updated")
 
             # Cross-reference summary
             cross_ref = data.get("cross_reference") or {}
@@ -446,13 +436,13 @@ def _render_help(result: dict) -> str:
         "",
         "📂 SYNC RULES",
         "",
-        "   • Added in Pulse    → added to wiki",
-        "   • Removed from Pulse → removed from wiki",
-        "   • Changed in Pulse  → updated in wiki",
-        "   • Only in wiki       → preserved untouched",
+        "   • Added in Pulse    → added to generated data file",
+        "   • Removed from Pulse → removed from generated data file",
+        "   • Changed in Pulse  → updated in generated data file",
         "",
-        "   Auto sections wrapped in <!-- HOMEPAGE_AUTO: --> markers.",
-        "   Everything outside those markers is your manual territory.",
+        "   Auto-generated data is written to generated/infrastructure-data.md.",
+        "   The Hermes agent reads that file and updates guides/homelab-infrastructure.md.",
+        "   Everything in the wiki page is your manual territory.",
         "",
     ]
     return "\n".join(lines)
@@ -482,13 +472,13 @@ def _build_review_prompt(data: dict) -> str:
     """
     elapsed = data.get("elapsed_seconds", 0)
     changed = data.get("changed", False)
-    sections = data.get("sections", {})
     source = data.get("source", {})
     cross_ref = data.get("cross_reference", {})
     topology = data.get("topology", {})
 
     svc_count = source.get("services", 0)
     sub_count = source.get("subdomains", 0)
+    generated_file = data.get("generated_file", "?")
     wiki_file = data.get("wiki_file", "?")
 
     lines = [
@@ -498,21 +488,34 @@ def _build_review_prompt(data: dict) -> str:
     ]
 
     if changed:
-        updated = sections.get("updated", [])
-        added = sections.get("added", [])
         lines.append(
             f"↕ Synced in {elapsed}s — {svc_count} services,"
-            f" {sub_count} subdomains → {wiki_file}"
+            f" {sub_count} subdomains"
         )
-        if updated:
-            lines.append(f"Updated sections: {', '.join(updated)}")
-        if added:
-            lines.append(f"Added sections: {', '.join(added)}")
+        lines.append(f"Generated data file updated: `{generated_file}`")
     else:
-        lines.append(f"✅ Synced in {elapsed}s — wiki is up to date (no changes)")
+        lines.append(f"✅ Synced in {elapsed}s — generated data file is up to date (no changes)")
         lines.append(
-            f"   Source: {svc_count} services, {sub_count} subdomains → {wiki_file}"
+            f"   Source: {svc_count} services, {sub_count} subdomains"
         )
+        lines.append(f"   Generated file: `{generated_file}`")
+
+    # ── Generated file / wiki update instructions ──
+    lines.append("")
+    lines.append("## Wiki Update Instructions")
+    lines.append("")
+    lines.append(
+        f"Read `{generated_file}` to get the latest infrastructure data,"
+        f" then update `{wiki_file}` surgically:"
+    )
+    lines.append("")
+    lines.append("1. Add/remove CT/VM entries from the Machine Details section")
+    lines.append("2. Update IP, OS, and host info for any drifted entries")
+    lines.append("3. Update the DHCP / Free IPs section based on IP changes")
+    lines.append(
+        "4. Append a concise **Status** paragraph at the end"
+        ' (e.g. "✅ 0 alerts, 2 nodes online, 14 containers running")'
+    )
 
     # ── Cross-reference report ──
     lines.append("")
@@ -711,10 +714,10 @@ def _handle_update_tool(raw_args: str = "") -> str:
         data["cross_ref"] = cross_ref
         data["entities_dir"] = str(wiki_root / "entities")
 
-        page_path = wiki_root / WIKI_PAGE
+        generated_path = wiki_root / config.GENERATED_OUTPUT_DIR / config.GENERATED_DATA_FILE
         log_path = wiki_root / "log.md"
 
-        result = updater.update_wiki_page(str(page_path), data)
+        result = updater.write_generated_file(str(generated_path), data)
         updater.update_wiki_log(str(log_path), result)
 
         machines_data = parser_wiki.parse_entity_pages(str(wiki_root / "entities"))
@@ -812,13 +815,9 @@ def _handle_update_tool(raw_args: str = "") -> str:
         result_dict = {
             "sync_completed_at": started_at,
             "elapsed_seconds": elapsed,
+            "generated_file": result["path"],
             "wiki_file": str(wiki_root / WIKI_PAGE),
             "changed": result["changed"],
-            "sections": {
-                "updated": result["sections_updated"],
-                "added": result["sections_added"],
-                "unchanged": result["sections_unchanged"],
-            },
             "source": {"services": svc_count, "subdomains": sub_count},
             "cross_reference": cross_ref,
             "topology": topology,

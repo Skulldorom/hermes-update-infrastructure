@@ -53,11 +53,11 @@ class TestToolHandlerJSONShape:
 
     def _make_mock_updater(self):
         mock = MagicMock()
-        mock.update_wiki_page.return_value = {
+        mock.write_generated_file.return_value = {
             "changed": False,
-            "sections_updated": [],
-            "sections_added": [],
-            "sections_unchanged": ["service_groups", "subdomains", "cross_reference", "topology"],
+            "path": "/fake/wiki/generated/infrastructure-data.md",
+            "hash_before": "abc123",
+            "hash_after": "abc123",
         }
         mock.update_wiki_log.return_value = None
         return mock
@@ -93,7 +93,7 @@ class TestToolHandlerJSONShape:
             data = json.loads(_handle_update_tool("json"))
 
         for key in ("sync_completed_at", "elapsed_seconds", "wiki_file",
-                     "changed", "sections", "source", "cross_reference",
+                     "generated_file", "changed", "source", "cross_reference",
                      "topology", "intent"):
             assert key in data, f"missing key: {key}"
         assert isinstance(data["changed"], bool)
@@ -187,7 +187,7 @@ class TestToolHandlerJSONShape:
 
         assert data["changed"] is False
         assert data["intent"]["type"] == "status"
-        mu.update_wiki_page.assert_not_called()
+        mu.write_generated_file.assert_not_called()
 
     def test_create_intent(self, tmp_wiki):
         mp = self._make_mock_parser()
