@@ -926,8 +926,9 @@ def _handle_update_tool(raw_args: str = "") -> str:
         }
 
         if intent in ("none",):
-            # Default: return a structured review prompt for the LLM agent
-            return _build_review_prompt(result_dict)
+            # Default: embed the review prompt in the JSON so callers can
+            # extract it without hitting a JSONDecodeError fallthrough.
+            result_dict["review_prompt"] = _build_review_prompt(result_dict)
 
         return json.dumps(result_dict)
 
@@ -956,7 +957,22 @@ def _handle_update_and_review(raw_args: str = "") -> str:
     prompt — even when sub-commands are passed.  For raw JSON, use the
     ``update_infrastructure`` tool with ``"json"`` or ``"tool"`` intent.
     """
-    return _handle_update_tool(raw_args)
+    raw_result = _handle_update_tool(raw_args)
+    try:
+        data = json.loads(raw_result)
+    except json.JSONDecodeError:
+        return raw_result  # shouldn't happen now, but safe fallback
+
+    review_prompt = data.get("review_prompt")
+    if review_prompt:
+        return review_prompt
+    # For subcommands, re-run via the default (no-args) path to get a review prompt
+    default_result = _handle_update_tool("")
+    try:
+        default_data = json.loads(default_result)
+    except json.JSONDecodeError:
+        return raw_result
+    return default_data.get("review_prompt", raw_result)
 
 
 # ---------------------------------------------------------------------------
@@ -989,7 +1005,8 @@ def register(ctx):
 
         intent = (data.get("intent") or {}).get("type")
         if intent == "none":
-            review_prompt = _build_review_prompt(data)
+            # Use the prebuilt review prompt embedded in the JSON by _handle_update_tool
+            review_prompt = data.get("review_prompt") or _build_review_prompt(data)
             inject = getattr(ctx, "inject_message", None)
             if callable(inject):
                 inject(review_prompt)
