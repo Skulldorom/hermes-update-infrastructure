@@ -1030,8 +1030,11 @@ def register(ctx):
         except json.JSONDecodeError:
             inject = getattr(ctx, "inject_message", None)
             if callable(inject):
-                inject(result)
-                return "🔄 Sync complete. Handing off results to agent for review..."
+                ok = inject(result)
+                if ok:
+                    return "🔄 Sync complete. Handing off results to agent for review..."
+                # Gateway mode: inject_message is callable but returns False
+                # because there is no CLI ref. Return the result directly.
             return result
 
         if "error" in data:
@@ -1043,8 +1046,12 @@ def register(ctx):
             review_prompt = data.get("review_prompt") or _build_review_prompt(data)
             inject = getattr(ctx, "inject_message", None)
             if callable(inject):
-                inject(review_prompt)
-                return "🔄 Sync complete. Handing off results to agent for review..."
+                ok = inject(review_prompt)
+                if ok:
+                    return "🔄 Sync complete. Handing off results to agent for review..."
+                # Gateway mode: inject_message is callable but returns False
+                # because there is no CLI ref. Return the review prompt directly
+                # so the user sees it as a command response.
             return review_prompt
 
         return _render_update_output(data)
