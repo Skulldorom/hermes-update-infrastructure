@@ -202,6 +202,11 @@ def npm_sync(
         - ``wiki_subdomain_count`` (int): Total number of wiki subdomains.
         - ``domains_page_found`` (bool): Whether the domains page was found.
         - ``error`` (str | None): Error message if the NPM API call failed.
+        - ``suggested_additions`` (list[dict]): NPM proxy hosts not in the
+          wiki, formatted as rows for the domains table.  Each item has
+          ``subdomain``, ``domain``, ``forward_host``, ``forward_port``.
+          Feeds into the generated data file so the agent can close the
+          NPM → wiki feedback loop.
     """
     domains_page = wiki_root / domains_page_rel
     wiki_subs = _extract_wiki_subdomains(domains_page)
@@ -215,6 +220,7 @@ def npm_sync(
         "wiki_subdomain_count": len(wiki_subs),
         "domains_page_found": domains_page.exists(),
         "error": None,
+        "suggested_additions": [],
     }
 
     try:
@@ -265,5 +271,20 @@ def npm_sync(
 
     # Wiki subdomains with no NPM proxy host
     result["missing_npm"] = sorted(wiki_subs - npm_labels)
+
+    # Build suggested additions from unmatched NPM proxy hosts.
+    # These flow into the generated data file so the agent can add
+    # urls: frontmatter to entity pages or update infrastructure-domains.md.
+    for host in proxy_hosts:
+        host_labels = [d.split(".")[0].lower() for d in host.get("domain_names", [])]
+        if not any(lbl in wiki_subs for lbl in host_labels):
+            for domain_name in host.get("domain_names", []):
+                label = domain_name.split(".")[0].lower()
+                result["suggested_additions"].append({
+                    "subdomain": label,
+                    "domain": domain_name,
+                    "forward_host": host.get("forward_host", ""),
+                    "forward_port": host.get("forward_port", 0),
+                })
 
     return result

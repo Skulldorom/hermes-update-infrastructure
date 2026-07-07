@@ -77,18 +77,21 @@ def _build_service_groups(data: dict) -> str:
     return "\n".join(lines)
 
 
-def _build_subdomain_table(data: dict) -> str:
+def _build_subdomain_table(data: dict, npm_suggestions: list[dict] | None = None) -> str:
     """Generate the Domain/Subdomain table.
 
     Subdomains are no longer auto-extracted from Pulse data (Pulse does not
-    know about reverse-proxy URLs).  Add ``urls:`` to entity page frontmatter
-    to track service URLs, or populate this section manually.
+    know about reverse-proxy URLs).  When *npm_suggestions* is provided from
+    the NPM sync, unmatched NPM proxy hosts are included as ``[NPM]`` rows
+    so the agent can add ``urls:`` frontmatter or update the domains page.
     """
     subdomains = data.get("subdomains", [])
-    if not subdomains:
+    suggestions = npm_suggestions or []
+
+    if not subdomains and not suggestions:
         return (
-            "*(No subdomain data available — Pulse does not expose reverse-proxy URLs.*\n"
-            "*Add `urls:` frontmatter to entity pages to track service URLs.)*\n"
+            "*(No subdomain data available — Pulse does not expose reverse-proxy URLs.*\\n"
+            "*Add `urls:` frontmatter to entity pages to track service URLs.)*\\n"
         )
 
     lines = [
@@ -104,6 +107,15 @@ def _build_subdomain_table(data: dict) -> str:
 
         href_cell = f"<{href}>" if href else "—"
         lines.append(f"| {sub} | {name} | {href_cell} | {group} |")
+
+    # NPM-sourced suggestions: proxy hosts found in NPM but not yet in the wiki
+    if suggestions:
+        lines.append("| *(NPM suggestions)* | | | |")
+        for item in suggestions:
+            sub = item.get("subdomain", "")
+            domain = item.get("domain", "")
+            fwd = f"{item.get('forward_host', '')}:{item.get('forward_port', '')}"
+            lines.append(f"| {sub} | [NPM] {domain} | — | NPM → {fwd} |")
 
     return "\n".join(lines) + "\n"
 
@@ -203,7 +215,8 @@ def _build_topology_diagram(data: dict) -> str:
     return "![Network Topology](../assets/topology.svg)\n"
 
 
-def write_generated_file(output_path: str, data: dict, dry_run: bool = False) -> dict:
+def write_generated_file(output_path: str, data: dict, dry_run: bool = False,
+                        npm_data: dict | None = None) -> dict:
     """Write auto-generated infrastructure data to a dedicated file.
 
     The content is always replaced wholesale — there are no markers or
@@ -215,6 +228,9 @@ def write_generated_file(output_path: str, data: dict, dry_run: bool = False) ->
         data: Parsed data from ``parser.parse_all()`` (may include
               ``cross_ref`` and ``entities_dir`` keys added by the caller).
         dry_run: If True, return the result without writing.
+        npm_data: Optional NPM sync result from ``npm_sync()``.  When
+            provided, unmatched NPM proxy hosts are rendered as
+            ``[NPM]`` suggestion rows in the subdomain table.
 
     Returns:
         {
@@ -229,6 +245,8 @@ def write_generated_file(output_path: str, data: dict, dry_run: bool = False) ->
 
     services = data.get("services", [])
     subdomains = data.get("subdomains", [])
+    npm_suggestions = (npm_data or {}).get("suggested_additions", [])
+    npm_sub_count = len(npm_suggestions)
 
     lines = [
         "---",
@@ -254,7 +272,7 @@ def write_generated_file(output_path: str, data: dict, dry_run: bool = False) ->
         "",
         "## Domain / Subdomain Map",
         "",
-        _build_subdomain_table(data),
+        _build_subdomain_table(data, npm_suggestions=npm_suggestions),
         "",
         "---",
         "",

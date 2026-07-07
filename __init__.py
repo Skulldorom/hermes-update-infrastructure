@@ -830,15 +830,6 @@ def _handle_update_tool(raw_args: str = "", **kwargs) -> str:
         data["cross_ref"] = cross_ref
         data["entities_dir"] = str(wiki_root / "entities")
 
-        generated_path = wiki_root / config.GENERATED_OUTPUT_DIR / config.GENERATED_DATA_FILE
-        log_path = wiki_root / "log.md"
-
-        result = updater.write_generated_file(str(generated_path), data)
-        updater.update_wiki_log(str(log_path), result)
-
-        machines_data = parser_wiki.parse_entity_pages(str(wiki_root / "entities"))
-        topology = _build_topology_dict(machines_data)
-
         # --- NPM sync (best-effort; skipped when credentials are not configured) ---
         npm_result: dict | None = None
         npm_url = config.get_npm_url()
@@ -851,6 +842,16 @@ def _handle_update_tool(raw_args: str = "", **kwargs) -> str:
             except Exception as npm_exc:  # noqa: BLE001
                 logger.warning("NPM sync failed: %s", npm_exc)
                 npm_result = {"error": str(npm_exc)}
+
+        generated_path = wiki_root / config.GENERATED_OUTPUT_DIR / config.GENERATED_DATA_FILE
+        log_path = wiki_root / "log.md"
+
+        result = updater.write_generated_file(str(generated_path), data,
+                                               npm_data=npm_result)
+        updater.update_wiki_log(str(log_path), result)
+
+        machines_data = parser_wiki.parse_entity_pages(str(wiki_root / "entities"))
+        topology = _build_topology_dict(machines_data)
 
         # Execute intent and capture structured result
         intent_result = None
