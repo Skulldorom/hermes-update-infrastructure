@@ -56,6 +56,22 @@ DEFAULT_SUBDOMAIN_PATTERNS: list[str] = [
 ]
 
 # ---------------------------------------------------------------------------
+# NGINX Proxy Manager (NPM) API source
+# ---------------------------------------------------------------------------
+
+#: Base URL of the NGINX Proxy Manager API.
+#: Override at runtime via the ``NPM_URL`` environment variable.
+NPM_URL: str = ""
+
+#: Email address used to authenticate with the NPM API.
+#: Override at runtime via the ``NPM_EMAIL`` environment variable.
+NPM_EMAIL: str = ""
+
+#: Password used to authenticate with the NPM API.
+#: Override at runtime via the ``NPM_PASSWORD`` environment variable.
+NPM_PASSWORD: str = ""
+
+# ---------------------------------------------------------------------------
 # Noise / cross-reference filters
 # ---------------------------------------------------------------------------
 
