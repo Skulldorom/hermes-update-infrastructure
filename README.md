@@ -198,11 +198,16 @@ The cross-reference output is filtered to surface only actionable findings:
 - **Personal device / person entity pages** (those with `type: phone`,
   `type: tablet`, `type: person`, etc.) are excluded from orphaned-page
   reports.
+- **Orphan suppression whitelist** — entity slugs listed in
+  `suppress_orphan_check` are excluded from orphaned-page reports. Use
+  this for real hardware (IR blasters, routers), external services (VPN),
+  and other legitimate wiki pages that will never appear in Pulse.
 - **Unmapped server aliases** include fuzzy suggestions — e.g.
   `server: nas` → "did you mean `my-nas`?".
 
 Extend the generic-name list via `infrastructure-plugin.generic_infra_names`
-in `config.yaml`.
+in `config.yaml`.  Use `suppress_orphan_check` to whitelist entity slugs
+that should never appear in orphan reports.
 
 ### Scaffolding entity pages
 
@@ -236,6 +241,9 @@ infrastructure-plugin:
     nas: my-nas-1
   suppress_entity_check:
     - "Some Generic Service"
+  suppress_orphan_check:
+    - broadlink-ir
+    - the-beast
 ```
 
 ### Configuration keys
@@ -250,6 +258,7 @@ infrastructure-plugin:
 | `generic_infra_names` | *(built-in list)* | Replaces the built-in list of platform names filtered from missing-entity reports |
 | `server_aliases` | *(empty)* | Dict mapping short server names to entity slugs |
 | `suppress_entity_check` | *(empty)* | List of service display names to skip in missing-entity reports |
+| `suppress_orphan_check` | *(empty)* | List of entity slugs (filename without `.md`) to skip in orphaned-entity reports |
 
 ### Credentials (environment variables)
 

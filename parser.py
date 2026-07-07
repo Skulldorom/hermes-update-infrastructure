@@ -372,6 +372,7 @@ def cross_reference(data: dict, entity_pages: dict | None) -> dict:
     services = data.get("services", [])
     generic_names = _get_generic_infra_names()
     suppressed_names = _get_suppressed_entity_names()
+    suppressed_orphan_names = config.get_suppressed_orphan_names()
 
     # Build a set of service slugs for fast lookup
     service_slugs = {_slugify(svc["name"]) for svc in services}
@@ -501,11 +502,13 @@ def cross_reference(data: dict, entity_pages: dict | None) -> dict:
                     })
 
     # Orphaned entity pages: slugs not matched by any service slug.
-    # Personal device / people pages are silently excluded.
+    # Personal device / people pages are silently excluded, as are
+    # slugs in the suppress_orphan_check config whitelist (real
+    # hardware, external services, etc. that will never be in Pulse).
     # Categorized for actionable cleanup output.
     orphaned: list[dict] = []
     for slug, entity in entity_pages.items():
-        if slug in service_slugs or _is_personal_device_entity(entity):
+        if slug in service_slugs or _is_personal_device_entity(entity) or slug in suppressed_orphan_names:
             continue
         category = _categorize_orphan(slug, entity)
         orphaned.append({"path": f"entities/{slug}.md", "category": category})
