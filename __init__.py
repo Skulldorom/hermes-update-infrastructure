@@ -450,7 +450,7 @@ def _render_help(result: dict) -> str:
         f"   wiki_root             Wiki root (current: {wiki_path})",
         "   pulse_url             Pulse API base URL",
         "   PULSE_API_TOKEN       Pulse API token (env var, monitoring:read scope required)",
-        "   pulse_resource_types  Resource types to fetch (default: vm,system-container,docker-service,agent)",
+        "   pulse_resource_types  Resource types to fetch (default: vm,system-container,app-container,agent)",
         "   generic_infra_names   Extra generic names to suppress in cross-ref",
         "   server_aliases        Short-name→entity mappings",
         "   suppress_entity_check Service names to skip in entity checks",

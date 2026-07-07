@@ -24,7 +24,7 @@ class TestToolHandlerJSONShape:
                     "vmid": "",
                     "os": "Debian GNU/Linux 12",
                     "status": "running",
-                    "type": "docker-service",
+                    "type": "app-container",
                     "parent_id": "",
                     "tags": [],
                 },

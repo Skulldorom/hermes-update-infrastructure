@@ -66,7 +66,7 @@ class TestBuildServiceList:
         resources = [
             {
                 "id": "abc123",
-                "type": "docker-service",
+                "type": "app-container",
                 "name": "qbittorrent",
                 "platformType": "docker",
                 "status": "running",
@@ -87,7 +87,7 @@ class TestBuildServiceList:
         assert svc["name"] == "qbittorrent"
         assert svc["ip"] == ""
         assert svc["host"] == "TheHoard"
-        assert svc["type"] == "docker-service"
+        assert svc["type"] == "app-container"
         assert svc["parent_id"] == "fe93158d"
 
     def test_empty_resources(self):

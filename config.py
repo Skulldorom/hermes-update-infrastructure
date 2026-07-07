@@ -43,7 +43,7 @@ PULSE_API_TOKEN_ENV_VAR: str = "PULSE_API_TOKEN"
 
 #: Resource types to fetch from Pulse when building the service list.
 #: Comma-separated string matching Pulse ``/api/resources?type=`` parameter.
-PULSE_RESOURCE_TYPES: str = "vm,system-container,docker-service,agent"
+PULSE_RESOURCE_TYPES: str = "vm,system-container,app-container,agent"
 
 # ---------------------------------------------------------------------------
 # Wiki paths
