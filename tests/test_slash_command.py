@@ -116,9 +116,10 @@ class _FakeGatewayCtx:
         return False
 
 
-def test_gateway_mode_falls_back_to_review_prompt():
+def test_gateway_mode_falls_back_to_rendered_summary():
     """When inject_message returns False (gateway/WebUI), the handler
-    returns the review prompt directly instead of the dead placeholder."""
+    renders a concise human-readable summary instead of dumping the
+    raw markdown review prompt."""
     ctx = _FakeGatewayCtx()
     register(ctx)
     handler = ctx.commands["update-infrastructure"]
@@ -128,16 +129,18 @@ def test_gateway_mode_falls_back_to_review_prompt():
     with patch("update_infrastructure._handle_update_tool", return_value=payload):
         result = handler("")
 
-    # Gateway mode: inject_message returned False, so we get the review
-    # prompt as the command response instead of the dead placeholder.
-    assert result == review_prompt
+    # Gateway mode: inject_message returned False, so we get a rendered
+    # summary — not the raw markdown prompt.
+    assert "Infrastructure Sync Review" not in result
+    assert "✅" in result
+    assert "Synced" in result or "synced" in result
     # inject_message was still called (it's callable), just returned False.
     assert ctx.injected == [review_prompt]
 
 
-def test_no_inject_message_attr_falls_back_to_review_prompt():
-    """When ctx has no inject_message attribute at all, return the review
-    prompt directly (same behavior as gateway mode)."""
+def test_no_inject_message_attr_falls_back_to_rendered_summary():
+    """When ctx has no inject_message attribute at all, render a concise
+    human-readable summary (same behavior as gateway mode)."""
     ctx = _FakeCtx()
     # Remove inject_message entirely to simulate a PluginContext without it.
     type(ctx).inject_message = None
@@ -149,4 +152,8 @@ def test_no_inject_message_attr_falls_back_to_review_prompt():
     with patch("update_infrastructure._handle_update_tool", return_value=payload):
         result = handler("")
 
-    assert result == review_prompt
+    # No inject_message at all: we get a rendered summary,
+    # not the raw markdown prompt.
+    assert "Infrastructure Sync Review" not in result
+    assert "✅" in result
+    assert "Synced" in result or "synced" in result

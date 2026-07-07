@@ -1049,10 +1049,10 @@ def register(ctx):
                 ok = inject(review_prompt)
                 if ok:
                     return "🔄 Sync complete. Handing off results to agent for review..."
-                # Gateway mode: inject_message is callable but returns False
-                # because there is no CLI ref. Return the review prompt directly
-                # so the user sees it as a command response.
-            return review_prompt
+                # Gateway/WebUI mode: inject_message is callable but returns False
+                # because there is no CLI ref. Render a concise human-readable
+                # summary instead of dumping the raw markdown review prompt.
+                return _render_update_output(data)
 
         return _render_update_output(data)
 
