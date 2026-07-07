@@ -221,6 +221,26 @@ def cross_reference(data: dict, entity_pages: dict | None) -> dict:
         known_hosts.add(_slugify(alias_key))
         known_hosts.update(targets)
 
+    # Expand known_hosts and service_slugs with pulse_host / pulse_containers
+    # frontmatter — entities can declare their Pulse name mapping directly,
+    # eliminating the need for opaque server_aliases config entries.
+    for _slug, entity in entity_pages.items():
+        pulse_host = entity.get("pulse_host")
+        if pulse_host:
+            known_hosts.add(_slugify(str(pulse_host)))
+        pulse_containers_raw = entity.get("pulse_containers")
+        if pulse_containers_raw:
+            if isinstance(pulse_containers_raw, list):
+                containers = [str(c).strip() for c in pulse_containers_raw if str(c).strip()]
+            elif isinstance(pulse_containers_raw, str):
+                containers = [c.strip() for c in pulse_containers_raw.split(",") if c.strip()]
+            else:
+                containers = []
+            for container_name in containers:
+                container_slug = _slugify(container_name)
+                service_slugs.add(container_slug)
+                known_hosts.add(container_slug)
+
     missing_entity_pages: list[dict] = []
     ip_drift: list[dict] = []
     unmapped_hosts: list[dict] = []
