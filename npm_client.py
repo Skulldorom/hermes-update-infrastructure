@@ -61,7 +61,7 @@ class NPMClient:
     ) -> None:
         self._base_url = (
             base_url
-            or os.environ.get("NPM_URL", config.NPM_URL)
+            or config.get_npm_url()
         ).rstrip("/")
         self._email = email or os.environ.get("NPM_EMAIL", config.NPM_EMAIL)
         self._password = password or os.environ.get("NPM_PASSWORD", config.NPM_PASSWORD)

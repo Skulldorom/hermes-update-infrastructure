@@ -1,11 +1,37 @@
 """Configuration variables for the update-infrastructure plugin.
 
 Override these values to adapt the plugin to a different homelab setup.
-Environment variables take precedence over the defaults defined here at runtime
-(see the individual ``_get_*`` helpers in ``parser.py``).
+Resolution order for every configurable value:
+
+1. ``infrastructure-plugin:`` section of Hermes ``config.yaml``
+2. Environment variable fallback (backward-compatible)
+3. Hard-coded default defined in this module
+
+Use the public ``get_*()`` functions — they implement the full resolution
+chain automatically.  The raw constants below remain for reference and as
+the final fallback.
 """
 
+import os
 from pathlib import Path
+
+
+# ---------------------------------------------------------------------------
+# Hermes config.yaml integration
+# ---------------------------------------------------------------------------
+
+def _load_infra_config() -> dict:
+    """Load the ``infrastructure-plugin:`` section from Hermes ``config.yaml``.
+
+    Returns an empty dict when Hermes is not installed, not running, or when
+    the section is absent, so every getter falls through to env-var → default.
+    """
+    try:
+        from hermes_cli.config import load_config  # type: ignore
+        cfg = load_config()
+        return cfg.get("infrastructure-plugin", {}) if isinstance(cfg, dict) else {}
+    except Exception:  # noqa: BLE001 — Hermes absent or config unreadable
+        return {}
 
 # ---------------------------------------------------------------------------
 # Pulse API source
@@ -97,3 +123,223 @@ DEFAULT_GENERIC_INFRA_NAMES: frozenset[str] = frozenset({
 PERSONAL_DEVICE_TYPES: frozenset[str] = frozenset({
     "person", "people", "phone", "tablet", "device", "mobile", "laptop",
 })
+
+
+# ---------------------------------------------------------------------------
+# Public getter functions (config.yaml → env var → code default)
+# ---------------------------------------------------------------------------
+
+def get_wiki_root() -> str:
+    """Return the wiki root path.
+
+    Resolution order:
+    1. ``infrastructure-plugin.wiki_root`` in Hermes ``config.yaml``
+    2. ``WIKI_PATH`` environment variable
+    3. ``~/wiki`` (default)
+    """
+    cfg = _load_infra_config()
+    if "wiki_root" in cfg:
+        return os.path.expanduser(str(cfg["wiki_root"]))
+    env = os.environ.get("WIKI_PATH", "").strip()
+    if env:
+        return os.path.expanduser(env)
+    return os.path.expanduser(DEFAULT_WIKI_ROOT)
+
+
+def get_wiki_page() -> str:
+    """Return the wiki infrastructure page path (relative to wiki root).
+
+    Resolution order:
+    1. ``infrastructure-plugin.wiki_page`` in Hermes ``config.yaml``
+    2. ``guides/homelab-infrastructure.md`` (default)
+    """
+    cfg = _load_infra_config()
+    return str(cfg["wiki_page"]) if "wiki_page" in cfg else WIKI_PAGE
+
+
+def get_subdomain_patterns() -> list[str]:
+    """Return the list of subdomain extraction regex patterns.
+
+    Resolution order:
+    1. ``infrastructure-plugin.subdomain_patterns`` in Hermes ``config.yaml``
+    2. ``SUBDOMAIN_PATTERNS`` environment variable (comma-separated)
+    3. ``DEFAULT_SUBDOMAIN_PATTERNS`` (default)
+    """
+    cfg = _load_infra_config()
+    if "subdomain_patterns" in cfg:
+        raw = cfg["subdomain_patterns"]
+        if isinstance(raw, list):
+            return [str(p) for p in raw]
+        return [str(raw)]
+    env = os.environ.get("SUBDOMAIN_PATTERNS", "").strip()
+    if env:
+        return [p.strip() for p in env.split(",") if p.strip()]
+    return list(DEFAULT_SUBDOMAIN_PATTERNS)
+
+
+def get_generic_infra_names() -> frozenset[str]:
+    """Return the set of generic infrastructure names to filter from reports.
+
+    Resolution order:
+    1. ``infrastructure-plugin.generic_infra_names`` in Hermes ``config.yaml``
+       (replaces the default set entirely — add your own list including any
+       names you want to keep from the defaults)
+    2. ``NOISE_FILTER_NAMES`` environment variable (comma-separated, *merged*
+       into the default set for backward compatibility)
+    3. ``DEFAULT_GENERIC_INFRA_NAMES`` (default)
+    """
+    cfg = _load_infra_config()
+    if "generic_infra_names" in cfg:
+        raw = cfg["generic_infra_names"]
+        if isinstance(raw, list):
+            return frozenset(str(n).strip().lower() for n in raw if str(n).strip())
+        return frozenset({str(raw).strip().lower()})
+    env = os.environ.get("NOISE_FILTER_NAMES", "").strip()
+    if env:
+        extra = frozenset(n.strip().lower() for n in env.split(",") if n.strip())
+        return DEFAULT_GENERIC_INFRA_NAMES | extra
+    return DEFAULT_GENERIC_INFRA_NAMES
+
+
+def get_personal_device_types() -> frozenset[str]:
+    """Return the set of entity ``type`` values treated as personal devices.
+
+    Resolution order:
+    1. ``infrastructure-plugin.personal_device_types`` in Hermes ``config.yaml``
+    2. ``PERSONAL_DEVICE_TYPES`` (default)
+    """
+    cfg = _load_infra_config()
+    if "personal_device_types" in cfg:
+        raw = cfg["personal_device_types"]
+        if isinstance(raw, list):
+            return frozenset(str(t).strip().lower() for t in raw if str(t).strip())
+        return frozenset({str(raw).strip().lower()})
+    return PERSONAL_DEVICE_TYPES
+
+
+def get_server_aliases() -> dict[str, list[str]]:
+    """Return the server alias mapping (short name → list of entity slugs).
+
+    Resolution order:
+    1. ``infrastructure-plugin.server_aliases`` in Hermes ``config.yaml``
+       (dict where values are strings or pipe-separated strings)
+    2. ``SERVER_ALIASES`` environment variable
+       (``key=value,key=value`` pairs; values may be pipe-delimited)
+    3. Empty dict (default)
+    """
+    cfg = _load_infra_config()
+    if "server_aliases" in cfg:
+        raw = cfg["server_aliases"]
+        if isinstance(raw, dict):
+            result: dict[str, list[str]] = {}
+            for k, v in raw.items():
+                key = str(k).strip().lower()
+                if not key:
+                    continue
+                if isinstance(v, list):
+                    result[key] = [str(i).strip() for i in v if str(i).strip()]
+                else:
+                    result[key] = [i.strip() for i in str(v).split("|") if i.strip()]
+            return result
+    env = os.environ.get("SERVER_ALIASES", "").strip()
+    if env:
+        aliases: dict[str, list[str]] = {}
+        for pair in env.split(","):
+            pair = pair.strip()
+            if "=" not in pair:
+                continue
+            key, value = pair.split("=", 1)
+            key = key.strip().lower()
+            aliases[key] = [v.strip() for v in value.split("|") if v.strip()]
+        return aliases
+    return {}
+
+
+def get_suppressed_entity_names() -> frozenset[str]:
+    """Return service names to skip in the missing-entity-page report.
+
+    Resolution order:
+    1. ``infrastructure-plugin.suppress_entity_check`` in Hermes ``config.yaml``
+       (list of display names)
+    2. ``SUPPRESS_ENTITY_CHECK`` environment variable (comma-separated)
+    3. Empty frozenset (default)
+    """
+    cfg = _load_infra_config()
+    if "suppress_entity_check" in cfg:
+        raw = cfg["suppress_entity_check"]
+        if isinstance(raw, list):
+            return frozenset(str(n).strip().lower() for n in raw if str(n).strip())
+        val = str(raw).strip()
+        if val:
+            return frozenset(n.strip().lower() for n in val.split(",") if n.strip())
+        return frozenset()
+    env = os.environ.get("SUPPRESS_ENTITY_CHECK", "").strip()
+    if env:
+        return frozenset(n.strip().lower() for n in env.split(",") if n.strip())
+    return frozenset()
+
+
+def get_pulse_url() -> str:
+    """Return the Pulse API base URL.
+
+    Resolution order:
+    1. ``infrastructure-plugin.pulse_url`` in Hermes ``config.yaml``
+    2. ``PULSE_API_URL`` environment variable
+    3. ``PULSE_API_URL`` constant (default)
+    """
+    cfg = _load_infra_config()
+    if "pulse_url" in cfg:
+        return str(cfg["pulse_url"]).rstrip("/")
+    env = os.environ.get("PULSE_API_URL", "").strip()
+    if env:
+        return env.rstrip("/")
+    return PULSE_API_URL
+
+
+def get_pulse_timeout() -> int:
+    """Return the Pulse API request timeout in seconds.
+
+    Resolution order:
+    1. ``infrastructure-plugin.pulse_timeout`` in Hermes ``config.yaml``
+    2. ``30`` (default)
+    """
+    cfg = _load_infra_config()
+    if "pulse_timeout" in cfg:
+        try:
+            return int(cfg["pulse_timeout"])
+        except (ValueError, TypeError):
+            pass
+    return 30
+
+
+def get_npm_url() -> str:
+    """Return the NGINX Proxy Manager base URL.
+
+    Resolution order:
+    1. ``infrastructure-plugin.npm_url`` in Hermes ``config.yaml``
+    2. ``NPM_URL`` environment variable
+    3. ``NPM_URL`` constant (empty string default)
+    """
+    cfg = _load_infra_config()
+    if "npm_url" in cfg:
+        return str(cfg["npm_url"]).rstrip("/")
+    env = os.environ.get("NPM_URL", "").strip()
+    if env:
+        return env.rstrip("/")
+    return NPM_URL
+
+
+def get_npm_timeout() -> int:
+    """Return the NPM API request timeout in seconds.
+
+    Resolution order:
+    1. ``infrastructure-plugin.npm_timeout`` in Hermes ``config.yaml``
+    2. ``15`` (default)
+    """
+    cfg = _load_infra_config()
+    if "npm_timeout" in cfg:
+        try:
+            return int(cfg["npm_timeout"])
+        except (ValueError, TypeError):
+            pass
+    return 15

@@ -146,8 +146,7 @@ def _build_topology_dict(machines_data: dict) -> dict:
 
 def _get_wiki_path() -> Path:
     """Resolve the wiki root path."""
-    wiki_root = os.environ.get("WIKI_PATH", os.path.expanduser(config.DEFAULT_WIKI_ROOT))
-    return Path(wiki_root)
+    return Path(config.get_wiki_root())
 
 
 def _render_update_output(data: dict) -> str:
