@@ -224,6 +224,9 @@ If the `entities/` directory does not exist the cross-reference step is skipped 
 | `WIKI_PATH` | `~/wiki` | Root of your wiki directory |
 | `SUBDOMAIN_PATTERNS` | *(see below)* | Comma-separated list of subdomain extraction regexes |
 | `NOISE_FILTER_NAMES` | *(see below)* | Comma-separated extra generic names to filter from missing-entity reports |
+| `NPM_URL` | *(empty)* | Base URL of the NGINX Proxy Manager instance (e.g. `http://192.168.0.3:81`) |
+| `NPM_EMAIL` | *(empty)* | Email used to authenticate with NPM |
+| `NPM_PASSWORD` | *(empty)* | Password used to authenticate with NPM |
 
 ### `SUBDOMAIN_PATTERNS`
 

@@ -37,11 +37,13 @@ from typing import Any
 try:
     from . import config, parser, updater
     from . import parser_wiki
+    from . import npm_client as _npm_client
 except ImportError:  # pragma: no cover - supports direct module loading in tests
     import config  # type: ignore
     import parser  # type: ignore
     import updater  # type: ignore
     import parser_wiki  # type: ignore
+    import npm_client as _npm_client  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -433,6 +435,9 @@ def _render_help(result: dict) -> str:
         "   NOISE_FILTER_NAMES    Extra generic names to suppress in cross-ref",
         "   SERVER_ALIASES        Short-name→entity mappings (key=val|val,...)",
         "   SUPPRESS_ENTITY_CHECK Service names to skip in entity checks",
+        "   NPM_URL               NGINX Proxy Manager base URL (optional, e.g. http://192.168.0.3:81)",
+        "   NPM_EMAIL             NPM login email (optional)",
+        "   NPM_PASSWORD          NPM login password (optional)",
         "",
         "📂 SYNC RULES",
         "",
@@ -589,6 +594,66 @@ def _build_review_prompt(data: dict) -> str:
                     "  → /update-infrastructure cleanup for details"
                 )
 
+    # ── NPM Proxy Host Cross-Reference ──
+    npm_sync_data = data.get("npm_sync")
+    if npm_sync_data is not None:
+        lines.append("")
+        lines.append("## NPM Proxy Host Cross-Reference")
+        npm_error = npm_sync_data.get("error")
+        if npm_error:
+            lines.append(f"⚠️ NPM sync error: {npm_error}")
+        else:
+            npm_host_count = npm_sync_data.get("npm_host_count", 0)
+            wiki_sub_count = npm_sync_data.get("wiki_subdomain_count", 0)
+            domains_found = npm_sync_data.get("domains_page_found", False)
+            unmatched = npm_sync_data.get("unmatched_npm", [])
+            missing = npm_sync_data.get("missing_npm", [])
+            cfg_drift = npm_sync_data.get("config_drift", [])
+            ssl_drift = npm_sync_data.get("ssl_drift", [])
+
+            if not domains_found:
+                lines.append("⚠️ Wiki domains page not found — subdomain comparison skipped")
+            else:
+                lines.append(
+                    f"NPM: {npm_host_count} proxy hosts,"
+                    f" Wiki: {wiki_sub_count} subdomains"
+                )
+
+            if not unmatched and not missing and not cfg_drift and not ssl_drift:
+                lines.append("✅ All clear — NPM hosts match wiki subdomains")
+            else:
+                if unmatched:
+                    lines.append("")
+                    lines.append(
+                        f"⚠️ {len(unmatched)} NPM proxy host(s) not in wiki:"
+                    )
+                    for item in unmatched:
+                        domains = ", ".join(item.get("domain_names", []))
+                        fwd = f"{item.get('forward_host', '')}:{item.get('forward_port', '')}"
+                        lines.append(f"  • {domains} → {fwd}")
+
+                if missing:
+                    lines.append("")
+                    lines.append(
+                        f"⚠️ {len(missing)} wiki subdomain(s) with no NPM proxy host:"
+                    )
+                    for label in missing:
+                        lines.append(f"  • {label}")
+
+                if cfg_drift:
+                    lines.append("")
+                    lines.append(f"⚠️ {len(cfg_drift)} config drift(s) detected:")
+                    for item in cfg_drift:
+                        domains = ", ".join(item.get("domain_names", []))
+                        lines.append(f"  • {domains}: {item.get('issue', '')}")
+
+                if ssl_drift:
+                    lines.append("")
+                    lines.append(f"⚠️ {len(ssl_drift)} SSL drift(s) detected:")
+                    for item in ssl_drift:
+                        domains = ", ".join(item.get("domain_names", []))
+                        lines.append(f"  • {domains}: {item.get('issue', '')}")
+
     # ── Topology ──
     lines.append("")
     lines.append("## Topology")
@@ -649,6 +714,20 @@ def _build_review_prompt(data: dict) -> str:
                 ' — need help mapping them?"'
             )
 
+    if npm_sync_data is not None and not npm_sync_data.get("error"):
+        if npm_sync_data.get("unmatched_npm") or npm_sync_data.get("missing_npm"):
+            has_issues = True
+            lines.append(
+                '- Ask: "NPM proxy host drift detected —'
+                ' want me to review the discrepancies?"'
+            )
+        if npm_sync_data.get("ssl_drift"):
+            has_issues = True
+            lines.append(
+                '- Ask: "Some NPM proxy hosts have SSL drift —'
+                ' want me to flag them for review?"'
+            )
+
     if not has_issues:
         lines.append(
             '- Report: "Wiki is up to date, no issues found.'
@@ -681,6 +760,17 @@ def _handle_update_tool(raw_args: str = "") -> str:
             entity_pages = parser.load_entity_pages(wiki_root)
             data = parser.parse_all()
             cross_ref = parser.cross_reference(data, entity_pages)
+            npm_url = os.environ.get("NPM_URL", config.NPM_URL)
+            npm_email = os.environ.get("NPM_EMAIL", config.NPM_EMAIL)
+            npm_password = os.environ.get("NPM_PASSWORD", config.NPM_PASSWORD)
+            npm_status_result: dict | None = None
+            if npm_url and npm_email and npm_password:
+                try:
+                    npm_c = _npm_client.NPMClient(npm_url, npm_email, npm_password)
+                    npm_status_result = _npm_client.npm_sync(npm_c, wiki_root)
+                except Exception as npm_exc:  # noqa: BLE001
+                    logger.warning("NPM sync failed: %s", npm_exc)
+                    npm_status_result = {"error": str(npm_exc)}
             elapsed = round(time.monotonic() - t_start, 2)
             return json.dumps({
                 "sync_completed_at": started_at,
@@ -690,6 +780,7 @@ def _handle_update_tool(raw_args: str = "") -> str:
                 "source": {"services": len(data.get("services", [])),
                            "subdomains": len(data.get("subdomains", []))},
                 "cross_reference": cross_ref,
+                "npm_sync": npm_status_result,
                 "intent": {"type": "status"},
             })
 
@@ -722,6 +813,19 @@ def _handle_update_tool(raw_args: str = "") -> str:
 
         machines_data = parser_wiki.parse_entity_pages(str(wiki_root / "entities"))
         topology = _build_topology_dict(machines_data)
+
+        # --- NPM sync (best-effort; skipped when credentials are not configured) ---
+        npm_result: dict | None = None
+        npm_url = os.environ.get("NPM_URL", config.NPM_URL)
+        npm_email = os.environ.get("NPM_EMAIL", config.NPM_EMAIL)
+        npm_password = os.environ.get("NPM_PASSWORD", config.NPM_PASSWORD)
+        if npm_url and npm_email and npm_password:
+            try:
+                npm_c = _npm_client.NPMClient(npm_url, npm_email, npm_password)
+                npm_result = _npm_client.npm_sync(npm_c, wiki_root)
+            except Exception as npm_exc:  # noqa: BLE001
+                logger.warning("NPM sync failed: %s", npm_exc)
+                npm_result = {"error": str(npm_exc)}
 
         # Execute intent and capture structured result
         intent_result = None
@@ -821,6 +925,7 @@ def _handle_update_tool(raw_args: str = "") -> str:
             "source": {"services": svc_count, "subdomains": sub_count},
             "cross_reference": cross_ref,
             "topology": topology,
+            "npm_sync": npm_result,
             "intent": {
                 "type": intent,
                 "result": intent_result,
