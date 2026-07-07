@@ -1,6 +1,6 @@
 """Tests for config.py public getter functions.
 
-Validates the three-layer resolution: config.yaml → env var → code default.
+Validates the two-layer resolution: config.yaml → code default.
 Hermes is absent in the test environment, so the config.yaml layer is simulated
 by monkey-patching ``config._load_infra_config``.
 """
@@ -36,22 +36,13 @@ def _infra_cfg(**kwargs):
 class TestGetWikiRoot:
     def test_default(self):
         with patch.object(config, "_load_infra_config", _no_infra_cfg):
-            with patch.dict(os.environ, {}, clear=False):
-                os.environ.pop("WIKI_PATH", None)
-                result = config.get_wiki_root()
+            result = config.get_wiki_root()
         assert result == os.path.expanduser("~/wiki")
 
-    def test_env_var_overrides_default(self):
-        with patch.object(config, "_load_infra_config", _no_infra_cfg):
-            with patch.dict(os.environ, {"WIKI_PATH": "/tmp/test-wiki"}):
-                result = config.get_wiki_root()
-        assert result == "/tmp/test-wiki"
-
-    def test_config_yaml_overrides_env(self):
+    def test_config_yaml_override(self):
         with patch.object(config, "_load_infra_config",
                           lambda: _infra_cfg(wiki_root="/cfg/wiki")):
-            with patch.dict(os.environ, {"WIKI_PATH": "/env/wiki"}):
-                result = config.get_wiki_root()
+            result = config.get_wiki_root()
         assert result == "/cfg/wiki"
 
     def test_config_yaml_tilde_expanded(self):
@@ -82,18 +73,10 @@ class TestGetWikiPage:
 # ---------------------------------------------------------------------------
 
 class TestGetSubdomainPatterns:
-    def test_default(self):
+    def test_default_empty(self):
         with patch.object(config, "_load_infra_config", _no_infra_cfg):
-            with patch.dict(os.environ, {}, clear=False):
-                os.environ.pop("SUBDOMAIN_PATTERNS", None)
-                result = config.get_subdomain_patterns()
-        assert result == config.DEFAULT_SUBDOMAIN_PATTERNS
-
-    def test_env_var(self):
-        with patch.object(config, "_load_infra_config", _no_infra_cfg):
-            with patch.dict(os.environ, {"SUBDOMAIN_PATTERNS": r"https?://([a-z]+)\.example\.com"}):
-                result = config.get_subdomain_patterns()
-        assert result == [r"https?://([a-z]+)\.example\.com"]
+            result = config.get_subdomain_patterns()
+        assert result == []
 
     def test_config_yaml_list(self):
         patterns = [r"https?://([a-z]+)\.test\.io", r"https?://([a-z]+)\.example\.com"]
@@ -102,11 +85,10 @@ class TestGetSubdomainPatterns:
             result = config.get_subdomain_patterns()
         assert result == patterns
 
-    def test_config_yaml_overrides_env(self):
+    def test_config_yaml_single_string(self):
         with patch.object(config, "_load_infra_config",
-                          lambda: _infra_cfg(subdomain_patterns=[r"cfg-pattern"])):
-            with patch.dict(os.environ, {"SUBDOMAIN_PATTERNS": "env-pattern"}):
-                result = config.get_subdomain_patterns()
+                          lambda: _infra_cfg(subdomain_patterns=r"cfg-pattern")):
+            result = config.get_subdomain_patterns()
         assert result == ["cfg-pattern"]
 
 
@@ -117,18 +99,8 @@ class TestGetSubdomainPatterns:
 class TestGetGenericInfraNames:
     def test_default_contains_proxmox(self):
         with patch.object(config, "_load_infra_config", _no_infra_cfg):
-            with patch.dict(os.environ, {}, clear=False):
-                os.environ.pop("NOISE_FILTER_NAMES", None)
-                result = config.get_generic_infra_names()
+            result = config.get_generic_infra_names()
         assert "proxmox" in result
-
-    def test_env_var_merges_into_default(self):
-        with patch.object(config, "_load_infra_config", _no_infra_cfg):
-            with patch.dict(os.environ, {"NOISE_FILTER_NAMES": "my-custom-tool,another-tool"}):
-                result = config.get_generic_infra_names()
-        assert "my-custom-tool" in result
-        assert "another-tool" in result
-        assert "proxmox" in result  # default still present
 
     def test_config_yaml_replaces_default(self):
         with patch.object(config, "_load_infra_config",
@@ -136,14 +108,6 @@ class TestGetGenericInfraNames:
             result = config.get_generic_infra_names()
         assert result == frozenset({"toola", "toolb"})
         assert "proxmox" not in result  # config replaces, not extends
-
-    def test_config_yaml_overrides_env(self):
-        with patch.object(config, "_load_infra_config",
-                          lambda: _infra_cfg(generic_infra_names=["cfg-tool"])):
-            with patch.dict(os.environ, {"NOISE_FILTER_NAMES": "env-tool"}):
-                result = config.get_generic_infra_names()
-        assert "cfg-tool" in result
-        assert "env-tool" not in result
 
 
 # ---------------------------------------------------------------------------
@@ -170,23 +134,8 @@ class TestGetPersonalDeviceTypes:
 class TestGetServerAliases:
     def test_default_empty(self):
         with patch.object(config, "_load_infra_config", _no_infra_cfg):
-            with patch.dict(os.environ, {}, clear=False):
-                os.environ.pop("SERVER_ALIASES", None)
-                result = config.get_server_aliases()
+            result = config.get_server_aliases()
         assert result == {}
-
-    def test_env_var_single(self):
-        with patch.object(config, "_load_infra_config", _no_infra_cfg):
-            with patch.dict(os.environ, {"SERVER_ALIASES": "nas=thehoard-nas"}):
-                result = config.get_server_aliases()
-        assert result == {"nas": ["thehoard-nas"]}
-
-    def test_env_var_pipe_separated(self):
-        with patch.object(config, "_load_infra_config", _no_infra_cfg):
-            with patch.dict(os.environ,
-                            {"SERVER_ALIASES": "proxmox=aegis-proxmox|thesentinel-proxmox"}):
-                result = config.get_server_aliases()
-        assert result == {"proxmox": ["aegis-proxmox", "thesentinel-proxmox"]}
 
     def test_config_yaml_dict(self):
         with patch.object(config, "_load_infra_config",
@@ -202,14 +151,6 @@ class TestGetServerAliases:
             result = config.get_server_aliases()
         assert result["nas"] == ["thehoard-nas", "backup-nas"]
 
-    def test_config_yaml_overrides_env(self):
-        with patch.object(config, "_load_infra_config",
-                          lambda: _infra_cfg(server_aliases={"cfg-host": "cfg-target"})):
-            with patch.dict(os.environ, {"SERVER_ALIASES": "env-host=env-target"}):
-                result = config.get_server_aliases()
-        assert "cfg-host" in result
-        assert "env-host" not in result
-
 
 # ---------------------------------------------------------------------------
 # get_suppressed_entity_names
@@ -218,17 +159,8 @@ class TestGetServerAliases:
 class TestGetSuppressedEntityNames:
     def test_default_empty(self):
         with patch.object(config, "_load_infra_config", _no_infra_cfg):
-            with patch.dict(os.environ, {}, clear=False):
-                os.environ.pop("SUPPRESS_ENTITY_CHECK", None)
-                result = config.get_suppressed_entity_names()
+            result = config.get_suppressed_entity_names()
         assert result == frozenset()
-
-    def test_env_var(self):
-        with patch.object(config, "_load_infra_config", _no_infra_cfg):
-            with patch.dict(os.environ, {"SUPPRESS_ENTITY_CHECK": "Proxmox Node,Home Assistant"}):
-                result = config.get_suppressed_entity_names()
-        assert "proxmox node" in result
-        assert "home assistant" in result
 
     def test_config_yaml_list(self):
         with patch.object(config, "_load_infra_config",
@@ -243,38 +175,21 @@ class TestGetSuppressedEntityNames:
             result = config.get_suppressed_entity_names()
         assert result == frozenset()
 
-    def test_config_yaml_overrides_env(self):
-        with patch.object(config, "_load_infra_config",
-                          lambda: _infra_cfg(suppress_entity_check=["cfg-entity"])):
-            with patch.dict(os.environ, {"SUPPRESS_ENTITY_CHECK": "env-entity"}):
-                result = config.get_suppressed_entity_names()
-        assert "cfg-entity" in result
-        assert "env-entity" not in result
-
 
 # ---------------------------------------------------------------------------
 # get_pulse_url
 # ---------------------------------------------------------------------------
 
 class TestGetPulseUrl:
-    def test_default(self):
+    def test_default_empty(self):
         with patch.object(config, "_load_infra_config", _no_infra_cfg):
-            with patch.dict(os.environ, {}, clear=False):
-                os.environ.pop("PULSE_API_URL", None)
-                result = config.get_pulse_url()
-        assert result == config.PULSE_API_URL.rstrip("/")
+            result = config.get_pulse_url()
+        assert result == ""
 
-    def test_env_var(self):
-        with patch.object(config, "_load_infra_config", _no_infra_cfg):
-            with patch.dict(os.environ, {"PULSE_API_URL": "http://10.0.0.5:7655"}):
-                result = config.get_pulse_url()
-        assert result == "http://10.0.0.5:7655"
-
-    def test_config_yaml_overrides_env(self):
+    def test_config_yaml_override(self):
         with patch.object(config, "_load_infra_config",
                           lambda: _infra_cfg(pulse_url="http://cfg-host:7655")):
-            with patch.dict(os.environ, {"PULSE_API_URL": "http://env-host:7655"}):
-                result = config.get_pulse_url()
+            result = config.get_pulse_url()
         assert result == "http://cfg-host:7655"
 
     def test_trailing_slash_stripped(self):
@@ -311,22 +226,13 @@ class TestGetPulseTimeout:
 class TestGetNpmUrl:
     def test_default_empty(self):
         with patch.object(config, "_load_infra_config", _no_infra_cfg):
-            with patch.dict(os.environ, {}, clear=False):
-                os.environ.pop("NPM_URL", None)
-                result = config.get_npm_url()
-        assert result == config.NPM_URL  # empty string
+            result = config.get_npm_url()
+        assert result == ""
 
-    def test_env_var(self):
-        with patch.object(config, "_load_infra_config", _no_infra_cfg):
-            with patch.dict(os.environ, {"NPM_URL": "http://192.168.0.13:81"}):
-                result = config.get_npm_url()
-        assert result == "http://192.168.0.13:81"
-
-    def test_config_yaml_overrides_env(self):
+    def test_config_yaml_override(self):
         with patch.object(config, "_load_infra_config",
                           lambda: _infra_cfg(npm_url="http://cfg-npm:81")):
-            with patch.dict(os.environ, {"NPM_URL": "http://env-npm:81"}):
-                result = config.get_npm_url()
+            result = config.get_npm_url()
         assert result == "http://cfg-npm:81"
 
 

@@ -6,5 +6,5 @@ description: >
   homelab wiki from Pulse monitoring API, with noise-filtered
   cross-reference checks, entity page scaffolding, IP drift repair,
   and agent review prompt by default.
-author: Skulldorom + Hermes Coder Agent
+author: update-infrastructure contributors
 provides_hooks: []

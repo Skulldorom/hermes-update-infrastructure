@@ -5,11 +5,12 @@ certificates, and access lists.  Authentication uses a bearer token obtained
 via ``POST /api/tokens``; the token is cached for the lifetime of the
 ``NPMClient`` instance and refreshed automatically on 401 responses.
 
-Configuration is read from environment variables with fallback to ``config.py``:
+Configuration is read from ``config.py`` (populated via Hermes ``config.yaml``):
 
-- ``NPM_URL``      — Base URL of the NPM instance (e.g. ``http://192.168.0.3:81``)
-- ``NPM_EMAIL``    — Email used to authenticate
-- ``NPM_PASSWORD`` — Password used to authenticate
+- ``infrastructure-plugin.npm_url``      — Base URL of the NPM instance
+  (e.g. ``http://npm.local:81``)
+- ``NPM_EMAIL``    — Email used to authenticate (environment variable)
+- ``NPM_PASSWORD`` — Password used to authenticate (environment variable)
 
 Also provides ``npm_sync()`` which cross-references NPM proxy hosts against
 subdomain entries in the wiki's ``guides/infrastructure-domains.md`` table
@@ -43,8 +44,8 @@ class NPMClient:
            once with a fresh token.
 
     Args:
-        base_url: Base URL of the NPM instance (e.g. ``http://192.168.0.3:81``).
-            Defaults to the ``NPM_URL`` env var, then ``config.NPM_URL``.
+        base_url: Base URL of the NPM instance (e.g. ``http://npm.local:81``).
+            Defaults to ``config.get_npm_url()``.
         email: Email for authentication.
             Defaults to the ``NPM_EMAIL`` env var, then ``config.NPM_EMAIL``.
         password: Password for authentication.
@@ -124,11 +125,12 @@ class NPMClient:
 # ---------------------------------------------------------------------------
 
 # Matches table rows of the form:
-#   || skulldorom.xyz | subdomain | ...
+#   || example.com | subdomain | ...
 # or (pipe-table rows with a subdomain column)
-#   | skulldorom.xyz | subdomain | ...
+#   | example.com | subdomain | ...
+# The domain column is matched generically — any domain name is accepted.
 _SUBDOMAIN_ROW_RE = re.compile(
-    r"^\|+\s*[a-z0-9.-]*skulldorom\.[a-z]+\s*\|\s*([a-z0-9-]+)\s*\|",
+    r"^\|+\s*[a-z0-9.-]+\s*\|\s*([a-z0-9-]+)\s*\|",
     re.IGNORECASE | re.MULTILINE,
 )
 
@@ -143,7 +145,7 @@ _NPM_EXCLUSION_RE = re.compile(
 def _extract_wiki_subdomains(domains_page: Path) -> set[str]:
     """Extract subdomain labels from the wiki ``infrastructure-domains.md`` table.
 
-    Reads rows of the form ``|| skulldorom.xyz | subdomain | ...`` and
+    Reads rows of the form ``|| example.com | subdomain | ...`` and
     returns the set of subdomain labels, excluding entries that belong to
     Proxmox nodes, PBS, Cloudflare Tunnel, or Tailscale.
 

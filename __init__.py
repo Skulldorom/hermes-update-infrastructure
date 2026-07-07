@@ -380,10 +380,7 @@ def _render_echo(intent: dict) -> str:
 
 def _render_help(result: dict) -> str:
     """Render a comprehensive help / usage message."""
-    project_url = (
-        "https://github.com/Skulldorom/hermes-update-infrastructure"
-    )
-    wiki_path = os.environ.get("WIKI_PATH", "~/wiki")
+    wiki_path = config.get_wiki_root()
 
     lines = [
         "",
@@ -391,9 +388,6 @@ def _render_help(result: dict) -> str:
         "│               /update-infrastructure  v3.0.0                │",
         "│  Sync homelab wiki from Pulse monitoring API                 │",
         "└─────────────────────────────────────────────────────────────┘",
-        "",
-        "🔗 PROJECT",
-        f"   {project_url}",
         "",
         "🔄 COMMANDS (aliases: /update-infra, /sync-infra)",
         "",
@@ -425,18 +419,18 @@ def _render_help(result: dict) -> str:
         "   /update-infrastructure help    (or --help, -h)",
         "      Show this help message",
         "",
-        "⚙️  ENVIRONMENT",
+        "⚙️  CONFIGURATION  (infrastructure-plugin: section in config.yaml)",
         "",
-        f"   WIKI_PATH            Wiki root (default: {wiki_path})",
-        "   PULSE_API_URL         Pulse API base URL (default: http://192.168.0.20:7655)",
-        "   PULSE_API_TOKEN       Pulse API token (monitoring:read scope required)",
-        "   PULSE_RESOURCE_TYPES  Resource types to fetch (default: container,vm,node,docker-container)",
-        "   NOISE_FILTER_NAMES    Extra generic names to suppress in cross-ref",
-        "   SERVER_ALIASES        Short-name→entity mappings (key=val|val,...)",
-        "   SUPPRESS_ENTITY_CHECK Service names to skip in entity checks",
-        "   NPM_URL               NGINX Proxy Manager base URL (optional, e.g. http://192.168.0.3:81)",
-        "   NPM_EMAIL             NPM login email (optional)",
-        "   NPM_PASSWORD          NPM login password (optional)",
+        f"   wiki_root             Wiki root (current: {wiki_path})",
+        "   pulse_url             Pulse API base URL",
+        "   PULSE_API_TOKEN       Pulse API token (env var, monitoring:read scope required)",
+        "   pulse_resource_types  Resource types to fetch (default: container,vm,node,docker-container)",
+        "   generic_infra_names   Extra generic names to suppress in cross-ref",
+        "   server_aliases        Short-name→entity mappings",
+        "   suppress_entity_check Service names to skip in entity checks",
+        "   npm_url               NGINX Proxy Manager base URL (optional)",
+        "   NPM_EMAIL             NPM login email (env var, optional)",
+        "   NPM_PASSWORD          NPM login password (env var, optional)",
         "",
         "📂 SYNC RULES",
         "",
@@ -759,7 +753,7 @@ def _handle_update_tool(raw_args: str = "") -> str:
             entity_pages = parser.load_entity_pages(wiki_root)
             data = parser.parse_all()
             cross_ref = parser.cross_reference(data, entity_pages)
-            npm_url = os.environ.get("NPM_URL", config.NPM_URL)
+            npm_url = config.get_npm_url()
             npm_email = os.environ.get("NPM_EMAIL", config.NPM_EMAIL)
             npm_password = os.environ.get("NPM_PASSWORD", config.NPM_PASSWORD)
             npm_status_result: dict | None = None
@@ -815,7 +809,7 @@ def _handle_update_tool(raw_args: str = "") -> str:
 
         # --- NPM sync (best-effort; skipped when credentials are not configured) ---
         npm_result: dict | None = None
-        npm_url = os.environ.get("NPM_URL", config.NPM_URL)
+        npm_url = config.get_npm_url()
         npm_email = os.environ.get("NPM_EMAIL", config.NPM_EMAIL)
         npm_password = os.environ.get("NPM_PASSWORD", config.NPM_PASSWORD)
         if npm_url and npm_email and npm_password:

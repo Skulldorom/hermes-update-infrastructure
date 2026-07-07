@@ -85,17 +85,17 @@ def _client(base_url="http://npm.local:81", email="e", secret=_TEST_SECRET, **kw
 # ---------------------------------------------------------------------------
 
 class TestNPMClientInit:
-    def test_defaults_from_env(self, monkeypatch):
-        monkeypatch.setenv("NPM_URL", "http://npm.local:81")
-        monkeypatch.setenv("NPM_EMAIL", "admin@example.com")
-        monkeypatch.setenv("NPM_PASSWORD", "s3cr3t")
-        client = NPMClient()
+    def test_defaults_from_config(self, monkeypatch):
+        from update_infrastructure import config
+        from unittest.mock import patch
+        with patch.object(config, "get_npm_url", return_value="http://npm.local:81"), \
+             patch.dict(__import__("os").environ, {"NPM_EMAIL": "admin@example.com", "NPM_PASSWORD": "s3cr3t"}):
+            client = NPMClient()
         assert client._base_url == "http://npm.local:81"
         assert client._email == "admin@example.com"
         assert client._password == "s3cr3t"
 
-    def test_explicit_args_override_env(self, monkeypatch):
-        monkeypatch.setenv("NPM_URL", "http://wrong.local")
+    def test_explicit_args_take_priority(self):
         client = NPMClient("http://correct.local:81", "user@test.com", "mypass")
         assert client._base_url == "http://correct.local:81"
         assert client._email == "user@test.com"

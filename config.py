@@ -1,19 +1,15 @@
 """Configuration variables for the update-infrastructure plugin.
 
-Override these values to adapt the plugin to a different homelab setup.
-Resolution order for every configurable value:
+All configurable values are read from the ``infrastructure-plugin:`` section
+of Hermes ``config.yaml``.  If the section or a key is absent the hard-coded
+default defined in this module is used.
 
-1. ``infrastructure-plugin:`` section of Hermes ``config.yaml``
-2. Environment variable fallback (backward-compatible)
-3. Hard-coded default defined in this module
-
-Use the public ``get_*()`` functions — they implement the full resolution
-chain automatically.  The raw constants below remain for reference and as
-the final fallback.
+Use the public ``get_*()`` functions — they implement the resolution chain
+automatically.  The raw constants below are the final fallback values.
 """
 
-import os
 from pathlib import Path
+import os
 
 
 # ---------------------------------------------------------------------------
@@ -24,7 +20,7 @@ def _load_infra_config() -> dict:
     """Load the ``infrastructure-plugin:`` section from Hermes ``config.yaml``.
 
     Returns an empty dict when Hermes is not installed, not running, or when
-    the section is absent, so every getter falls through to env-var → default.
+    the section is absent, so every getter falls through to the code default.
     """
     try:
         from hermes_cli.config import load_config  # type: ignore
@@ -38,8 +34,8 @@ def _load_infra_config() -> dict:
 # ---------------------------------------------------------------------------
 
 #: Base URL of the Pulse monitoring API.
-#: Override at runtime via the ``PULSE_API_URL`` environment variable.
-PULSE_API_URL: str = "http://192.168.0.20:7655"
+#: Set via ``infrastructure-plugin.pulse_url`` in Hermes ``config.yaml``.
+PULSE_API_URL: str = ""
 
 #: Name of the environment variable that holds the Pulse API token.
 #: The token must have ``monitoring:read``, ``agent:read``, and ``settings:read`` scopes.
@@ -53,7 +49,7 @@ PULSE_RESOURCE_TYPES: str = "container,vm,node,docker-container"
 # Wiki paths
 # ---------------------------------------------------------------------------
 
-#: Default wiki root when the ``WIKI_PATH`` env var is not set.
+#: Default wiki root when no value is configured.
 DEFAULT_WIKI_ROOT: str = "~/wiki"
 
 #: Path to the main infrastructure page, relative to the wiki root.
@@ -75,26 +71,24 @@ GENERATED_DATA_FILE: str = "infrastructure-data.md"
 # ---------------------------------------------------------------------------
 
 #: Default subdomain regex patterns.  Each pattern must capture the subdomain
-#: label in group 1.  Override at runtime via the ``SUBDOMAIN_PATTERNS``
-#: environment variable (comma-separated list of raw regex strings).
-DEFAULT_SUBDOMAIN_PATTERNS: list[str] = [
-    r"https?://([a-z0-9-]+)\.skulldorom\.(xyz|com)"
-]
+#: label in group 1.  Configure via ``infrastructure-plugin.subdomain_patterns``
+#: in Hermes ``config.yaml``.
+DEFAULT_SUBDOMAIN_PATTERNS: list[str] = []
 
 # ---------------------------------------------------------------------------
 # NGINX Proxy Manager (NPM) API source
 # ---------------------------------------------------------------------------
 
 #: Base URL of the NGINX Proxy Manager API.
-#: Override at runtime via the ``NPM_URL`` environment variable.
+#: Set via ``infrastructure-plugin.npm_url`` in Hermes ``config.yaml``.
 NPM_URL: str = ""
 
 #: Email address used to authenticate with the NPM API.
-#: Override at runtime via the ``NPM_EMAIL`` environment variable.
+#: Set via the ``NPM_EMAIL`` environment variable.
 NPM_EMAIL: str = ""
 
 #: Password used to authenticate with the NPM API.
-#: Override at runtime via the ``NPM_PASSWORD`` environment variable.
+#: Set via the ``NPM_PASSWORD`` environment variable.
 NPM_PASSWORD: str = ""
 
 # ---------------------------------------------------------------------------
@@ -104,7 +98,7 @@ NPM_PASSWORD: str = ""
 #: Generic infrastructure / platform names that are *not* specific hosts.
 #: Services whose slugified name matches one of these are excluded from the
 #: "missing entity pages" report unless an entity page already exists.
-#: Extend at runtime via the ``NOISE_FILTER_NAMES`` env var (comma-separated).
+#: Extend via ``infrastructure-plugin.generic_infra_names`` in config.yaml.
 DEFAULT_GENERIC_INFRA_NAMES: frozenset[str] = frozenset({
     "synology", "glances", "dozzle", "proxmox", "nginx", "authentik",
     "traefik", "caddy", "haproxy", "portainer", "watchtower", "homepage",
@@ -126,7 +120,7 @@ PERSONAL_DEVICE_TYPES: frozenset[str] = frozenset({
 
 
 # ---------------------------------------------------------------------------
-# Public getter functions (config.yaml → env var → code default)
+# Public getter functions (config.yaml → code default)
 # ---------------------------------------------------------------------------
 
 def get_wiki_root() -> str:
@@ -134,15 +128,11 @@ def get_wiki_root() -> str:
 
     Resolution order:
     1. ``infrastructure-plugin.wiki_root`` in Hermes ``config.yaml``
-    2. ``WIKI_PATH`` environment variable
-    3. ``~/wiki`` (default)
+    2. ``~/wiki`` (default)
     """
     cfg = _load_infra_config()
     if "wiki_root" in cfg:
         return os.path.expanduser(str(cfg["wiki_root"]))
-    env = os.environ.get("WIKI_PATH", "").strip()
-    if env:
-        return os.path.expanduser(env)
     return os.path.expanduser(DEFAULT_WIKI_ROOT)
 
 
@@ -162,8 +152,7 @@ def get_subdomain_patterns() -> list[str]:
 
     Resolution order:
     1. ``infrastructure-plugin.subdomain_patterns`` in Hermes ``config.yaml``
-    2. ``SUBDOMAIN_PATTERNS`` environment variable (comma-separated)
-    3. ``DEFAULT_SUBDOMAIN_PATTERNS`` (default)
+    2. ``DEFAULT_SUBDOMAIN_PATTERNS`` (empty list by default)
     """
     cfg = _load_infra_config()
     if "subdomain_patterns" in cfg:
@@ -171,9 +160,6 @@ def get_subdomain_patterns() -> list[str]:
         if isinstance(raw, list):
             return [str(p) for p in raw]
         return [str(raw)]
-    env = os.environ.get("SUBDOMAIN_PATTERNS", "").strip()
-    if env:
-        return [p.strip() for p in env.split(",") if p.strip()]
     return list(DEFAULT_SUBDOMAIN_PATTERNS)
 
 
@@ -184,9 +170,7 @@ def get_generic_infra_names() -> frozenset[str]:
     1. ``infrastructure-plugin.generic_infra_names`` in Hermes ``config.yaml``
        (replaces the default set entirely — add your own list including any
        names you want to keep from the defaults)
-    2. ``NOISE_FILTER_NAMES`` environment variable (comma-separated, *merged*
-       into the default set for backward compatibility)
-    3. ``DEFAULT_GENERIC_INFRA_NAMES`` (default)
+    2. ``DEFAULT_GENERIC_INFRA_NAMES`` (default)
     """
     cfg = _load_infra_config()
     if "generic_infra_names" in cfg:
@@ -194,10 +178,6 @@ def get_generic_infra_names() -> frozenset[str]:
         if isinstance(raw, list):
             return frozenset(str(n).strip().lower() for n in raw if str(n).strip())
         return frozenset({str(raw).strip().lower()})
-    env = os.environ.get("NOISE_FILTER_NAMES", "").strip()
-    if env:
-        extra = frozenset(n.strip().lower() for n in env.split(",") if n.strip())
-        return DEFAULT_GENERIC_INFRA_NAMES | extra
     return DEFAULT_GENERIC_INFRA_NAMES
 
 
@@ -223,9 +203,7 @@ def get_server_aliases() -> dict[str, list[str]]:
     Resolution order:
     1. ``infrastructure-plugin.server_aliases`` in Hermes ``config.yaml``
        (dict where values are strings or pipe-separated strings)
-    2. ``SERVER_ALIASES`` environment variable
-       (``key=value,key=value`` pairs; values may be pipe-delimited)
-    3. Empty dict (default)
+    2. Empty dict (default)
     """
     cfg = _load_infra_config()
     if "server_aliases" in cfg:
@@ -241,17 +219,6 @@ def get_server_aliases() -> dict[str, list[str]]:
                 else:
                     result[key] = [i.strip() for i in str(v).split("|") if i.strip()]
             return result
-    env = os.environ.get("SERVER_ALIASES", "").strip()
-    if env:
-        aliases: dict[str, list[str]] = {}
-        for pair in env.split(","):
-            pair = pair.strip()
-            if "=" not in pair:
-                continue
-            key, value = pair.split("=", 1)
-            key = key.strip().lower()
-            aliases[key] = [v.strip() for v in value.split("|") if v.strip()]
-        return aliases
     return {}
 
 
@@ -261,8 +228,7 @@ def get_suppressed_entity_names() -> frozenset[str]:
     Resolution order:
     1. ``infrastructure-plugin.suppress_entity_check`` in Hermes ``config.yaml``
        (list of display names)
-    2. ``SUPPRESS_ENTITY_CHECK`` environment variable (comma-separated)
-    3. Empty frozenset (default)
+    2. Empty frozenset (default)
     """
     cfg = _load_infra_config()
     if "suppress_entity_check" in cfg:
@@ -273,9 +239,6 @@ def get_suppressed_entity_names() -> frozenset[str]:
         if val:
             return frozenset(n.strip().lower() for n in val.split(",") if n.strip())
         return frozenset()
-    env = os.environ.get("SUPPRESS_ENTITY_CHECK", "").strip()
-    if env:
-        return frozenset(n.strip().lower() for n in env.split(",") if n.strip())
     return frozenset()
 
 
@@ -284,15 +247,11 @@ def get_pulse_url() -> str:
 
     Resolution order:
     1. ``infrastructure-plugin.pulse_url`` in Hermes ``config.yaml``
-    2. ``PULSE_API_URL`` environment variable
-    3. ``PULSE_API_URL`` constant (default)
+    2. ``PULSE_API_URL`` constant (empty string default)
     """
     cfg = _load_infra_config()
     if "pulse_url" in cfg:
         return str(cfg["pulse_url"]).rstrip("/")
-    env = os.environ.get("PULSE_API_URL", "").strip()
-    if env:
-        return env.rstrip("/")
     return PULSE_API_URL
 
 
@@ -317,15 +276,11 @@ def get_npm_url() -> str:
 
     Resolution order:
     1. ``infrastructure-plugin.npm_url`` in Hermes ``config.yaml``
-    2. ``NPM_URL`` environment variable
-    3. ``NPM_URL`` constant (empty string default)
+    2. ``NPM_URL`` constant (empty string default)
     """
     cfg = _load_infra_config()
     if "npm_url" in cfg:
         return str(cfg["npm_url"]).rstrip("/")
-    env = os.environ.get("NPM_URL", "").strip()
-    if env:
-        return env.rstrip("/")
     return NPM_URL
 
 
