@@ -436,6 +436,18 @@ def cross_reference(data: dict, entity_pages: dict | None) -> dict:
         slug = _slugify(svc["name"])
         entity = entity_pages.get(slug)
 
+        if entity:
+            # Disambiguate same-named resources on different hosts.
+            # When an entity declares pulse_host, require the Pulse
+            # resource's host to match — otherwise it's a different
+            # resource with the same name (common for container pairs
+            # like AdGuard Primary/Secondary on separate nodes).
+            ph = entity.get("pulse_host")
+            if ph:
+                host_slug = _slugify(str(svc.get("host", "")))
+                if _slugify(str(ph)) != host_slug:
+                    entity = None  # wrong host, fall through
+
         if entity is None:
             # Fallback: try matching via pulse_host frontmatter field.
             # Entity pages like "aegis-proxmox" declare pulse_host: aegis,

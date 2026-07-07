@@ -154,3 +154,59 @@ class TestCrossReference:
         }
         result = cross_reference(data, entity_pages)
         assert len(result["unmapped_hosts"]) == 0
+
+    def test_same_name_different_hosts_no_drift(self):
+        """Two same-named services on different hosts — each matches its
+        entity via pulse_host. No false IP drift, no missing pages."""
+        data = {
+            "services": [
+                {"name": "adguard", "ip": "192.168.0.2", "host": "aegis"},
+                {"name": "adguard", "ip": "192.168.0.8", "host": "thesentinel"},
+            ],
+        }
+        entity_pages = {
+            "adguard": {
+                "pulse_host": "aegis",
+                "ip": "192.168.0.2",
+                "type": "container",
+                "_slug": "adguard",
+                "_path": "/fake/adguard.md",
+            },
+            "adguard-secondary": {
+                "pulse_host": "thesentinel",
+                "ip": "192.168.0.8",
+                "type": "container",
+                "_slug": "adguard-secondary",
+                "_path": "/fake/adguard-secondary.md",
+            },
+        }
+        result = cross_reference(data, entity_pages)
+        assert len(result["ip_drift"]) == 0, (
+            "same-named services on different hosts must not trigger IP drift"
+        )
+        assert len(result["missing_entity_pages"]) == 0, (
+            "services with known hosts must not be flagged as missing"
+        )
+
+    def test_pulse_host_mismatch_prevents_false_drift(self):
+        """A service slug-matches an entity but has the wrong pulse_host.
+        It must not be reported as IP drift against that entity."""
+        data = {
+            "services": [
+                {"name": "adguard", "ip": "192.168.0.8", "host": "thesentinel"},
+            ],
+        }
+        entity_pages = {
+            "adguard": {
+                "pulse_host": "aegis",
+                "ip": "192.168.0.2",
+                "type": "container",
+                "_slug": "adguard",
+                "_path": "/fake/adguard.md",
+            },
+        }
+        result = cross_reference(data, entity_pages)
+        # Must NOT be in ip_drift — the entity is for a different host
+        assert len(result["ip_drift"]) == 0, (
+            "pulse_host mismatch should prevent false IP drift"
+        )
