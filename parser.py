@@ -174,6 +174,92 @@ _STACK_SUFFIX_RE = re.compile(
 )
 
 
+def _strip_component_suffixes(slug: str) -> str:
+    """Strip well-known stack component suffixes from a container slug.
+
+    Strips greedily from the end: ``\"authentik-worker-1\"`` →
+    ``\"authentik\"`` (via ``-1`` then ``-worker``).
+
+    Returns the original slug unchanged when no suffixes match.
+    """
+    while True:
+        stripped = _STACK_SUFFIX_RE.sub("", slug)
+        if stripped == slug:
+            break
+        slug = stripped
+    return slug
+
+
+def _extract_pulse_containers(entity: dict) -> list[str]:
+    """Extract the pulse_containers list from an entity frontmatter dict.
+
+    Handles both YAML list and comma-separated string formats.
+    Returns slugified container names.
+    """
+    raw = entity.get("pulse_containers")
+    if not raw:
+        return []
+    if isinstance(raw, list):
+        items = [str(c).strip() for c in raw if str(c).strip()]
+    else:
+        items = [c.strip() for c in str(raw).split(",") if c.strip()]
+    return [_slugify(item) for item in items if _slugify(item)]
+
+
+def _append_to_pulse_containers(wiki_root: Path, parent_slug: str, container_name: str) -> bool:
+    """Append a container name to a parent entity's pulse_containers frontmatter.
+
+    Reads the entity file, parses frontmatter, adds *container_name* to
+    the ``pulse_containers`` list if not already present, and writes back.
+
+    Returns True if the file was modified, False if the container was
+    already listed or the parent page was not found.
+    """
+    page_path = wiki_root / "entities" / f"{parent_slug}.md"
+    if not page_path.exists():
+        return False
+
+    original = page_path.read_text()
+    fm = _parse_frontmatter(page_path)
+    if not fm:
+        return False
+
+    existing = _extract_pulse_containers(fm)
+    if _slugify(container_name) in existing:
+        return False  # already there
+
+    # Build the updated frontmatter
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    existing_display = [str(c).strip() for c in (
+        fm.get("pulse_containers") if isinstance(fm.get("pulse_containers"), list)
+        else str(fm.get("pulse_containers", "")).split(",")
+    ) if str(c).strip()]
+    existing_display.append(container_name)
+
+    # Find the pulse_containers line and replace, or insert
+    pc_pattern = re.compile(r"^(pulse_containers:\\s*).*$", re.MULTILINE)
+    updated_pattern = re.compile(r"^(updated:\\s*).*$", re.MULTILINE)
+
+    if pc_pattern.search(original):
+        # YAML list format: pulse_containers: [a, b, c]
+        yaml_list = "[" + ", ".join(existing_display) + "]"
+        updated = pc_pattern.sub(rf"\\g<1>{yaml_list}", original)
+    else:
+        # Insert before the closing --- of the frontmatter
+        end_fm = original.find("---", 3)
+        if end_fm == -1:
+            return False
+        yaml_list = "[" + ", ".join(existing_display) + "]"
+        new_line = f"pulse_containers: {yaml_list}\n"
+        updated = original[:end_fm] + new_line + original[end_fm:]
+
+    if updated_pattern.search(updated):
+        updated = updated_pattern.sub(rf"\\g<1>{today}", updated)
+
+    page_path.write_text(updated)
+    return True
+
+
 def _detect_stack_groups(
     services: list[dict],
     entity_pages: dict,
@@ -213,12 +299,7 @@ def _detect_stack_groups(
         if slug in entity_slugs or slug in pulse_container_slugs:
             continue
         # Strip well-known suffixes greedily from the end
-        stack_name = slug
-        while True:
-            stripped = _STACK_SUFFIX_RE.sub("", stack_name)
-            if stripped == stack_name:
-                break
-            stack_name = stripped
+        stack_name = _strip_component_suffixes(slug)
         # Only group when suffixes were actually stripped
         if stack_name and stack_name != slug:
             stack_groups.setdefault(stack_name, []).append(slug)
@@ -438,6 +519,7 @@ def scaffold_entity_page(
     host: str = "",
     os: str = "",
     vmid: str | int = "",
+    entity_pages: dict | None = None,
 ) -> dict:
     """Scaffold a new entity page for a service that has no existing page.
 
@@ -448,6 +530,11 @@ def scaffold_entity_page(
         host: Proxmox node name or Docker host name from Pulse.
         os: OS name from Pulse (e.g. "Debian GNU/Linux 12").
         vmid: CT/VM ID from Pulse.
+        entity_pages: Optional dict from :func:`load_entity_pages`.  When
+            provided, checks for stack membership before creating —
+            containers belonging to an existing parent stack are appended
+            to the parent's ``pulse_containers`` frontmatter instead of
+            getting a standalone page.
 
     Returns:
         A dict with keys:
@@ -459,7 +546,13 @@ def scaffold_entity_page(
         ``slug`` (str, only when created)
             The slugified filename stem.
         ``reason`` (str, only when not created)
-            Why the file was not created.
+            Why the file was not created.  Possible reasons:
+
+            * ``"already exists"`` — file already present
+            * ``"belongs to stack: <parent>"`` — container is listed in
+              parent's ``pulse_containers``
+            * ``"appended to <parent>/pulse_containers"`` — container was
+              added to the parent entity as a stack member
     """
     slug = _slugify(name)
     entities_dir = wiki_root / "entities"
@@ -468,6 +561,31 @@ def scaffold_entity_page(
     page_path = entities_dir / f"{slug}.md"
     if page_path.exists():
         return {"created": False, "path": str(page_path), "reason": "already exists"}
+
+    # ── Stack-aware check: avoid entity page sprawl for stack components ──
+    if entity_pages is not None:
+        # Check 1: container already listed in another entity's pulse_containers
+        for parent_slug, entity in entity_pages.items():
+            if slug in _extract_pulse_containers(entity):
+                return {
+                    "created": False,
+                    "path": str(page_path),
+                    "reason": f"belongs to stack: {parent_slug}",
+                }
+
+        # Check 2: container can be grouped via suffix stripping heuristic
+        stack_name = _strip_component_suffixes(slug)
+        if stack_name and stack_name != slug and stack_name in entity_pages:
+            appended = _append_to_pulse_containers(wiki_root, stack_name, name)
+            return {
+                "created": False,
+                "path": str(wiki_root / "entities" / f"{stack_name}.md"),
+                "reason": (
+                    f"appended to {stack_name}/pulse_containers (stack member)"
+                    if appended else
+                    f"stack {stack_name} exists but append failed"
+                ),
+            }
 
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 

@@ -862,7 +862,8 @@ def _handle_update_tool(raw_args: str = "", **kwargs) -> str:
             host = (svc or {}).get("host", "")
             os_name = (svc or {}).get("os", "")
             vmid = (svc or {}).get("vmid", "")
-            r = parser.scaffold_entity_page(wiki_root, name, ip, host, os_name, vmid)
+            r = parser.scaffold_entity_page(wiki_root, name, ip, host, os_name, vmid,
+                                             entity_pages=entity_pages)
             intent_result = {"created": r["created"], "path": r["path"]}
             if not r["created"]:
                 intent_result["reason"] = r.get("reason", "")
