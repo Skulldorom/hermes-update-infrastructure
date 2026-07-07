@@ -158,8 +158,13 @@ def _build_cross_reference_section(data: dict) -> str:
 
     if orphaned:
         lines.append("ℹ️ Orphaned entity pages (not in Pulse):")
-        for page in orphaned:
-            lines.append(f"  - {page}")
+        for item in orphaned:
+            if isinstance(item, dict):
+                page = item["path"]
+                cat_label = item.get("category", "truly_orphaned").replace("_", " ")
+                lines.append(f"  - {page} ({cat_label})")
+            else:
+                lines.append(f"  - {item}")
         lines.append("  → Run `/update-infrastructure cleanup` for details")
         lines.append("")
 

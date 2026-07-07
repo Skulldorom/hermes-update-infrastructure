@@ -237,6 +237,29 @@ def _detect_stack_groups(
     return covered
 
 
+def _categorize_orphan(slug: str, entity: dict) -> str:
+    """Categorize an orphaned entity page for actionable cleanup output.
+
+    Categories (in descending order of actionability):
+    * ``truly_orphaned`` — no connection to Pulse at all; candidate for removal
+    * ``has_pulse_host_match`` — entity has ``pulse_host`` set; may resolve with tweaks
+    * ``has_pulse_container_match`` — entity has ``pulse_containers`` set; parent of stacks
+    * ``networking_device`` — entity category is networking; expected, keep
+    * ``infrastructure_node`` — entity category is infrastructure; expected, keep
+    """
+    fm_category = str(entity.get("category", "")).lower()
+
+    if "infrastructure" in fm_category or "infra" in fm_category:
+        return "infrastructure_node"
+    if "networking" in fm_category or "network" in fm_category:
+        return "networking_device"
+    if entity.get("pulse_host"):
+        return "has_pulse_host_match"
+    if entity.get("pulse_containers"):
+        return "has_pulse_container_match"
+    return "truly_orphaned"
+
+
 def cross_reference(data: dict, entity_pages: dict | None) -> dict:
     """Cross-reference Pulse services against wiki entity pages.
 
@@ -381,17 +404,29 @@ def cross_reference(data: dict, entity_pages: dict | None) -> dict:
 
     # Orphaned entity pages: slugs not matched by any service slug.
     # Personal device / people pages are silently excluded.
-    orphaned = [
-        f"entities/{slug}.md"
-        for slug, entity in entity_pages.items()
-        if slug not in service_slugs and not _is_personal_device_entity(entity)
-    ]
+    # Categorized for actionable cleanup output.
+    orphaned: list[dict] = []
+    for slug, entity in entity_pages.items():
+        if slug in service_slugs or _is_personal_device_entity(entity):
+            continue
+        category = _categorize_orphan(slug, entity)
+        orphaned.append({"path": f"entities/{slug}.md", "category": category})
+
+    # Sort: truly_orphaned first, then infrastructure/nodes last
+    _CATEGORY_ORDER = {
+        "truly_orphaned": 0,
+        "has_pulse_host_match": 1,
+        "has_pulse_container_match": 2,
+        "networking_device": 3,
+        "infrastructure_node": 4,
+    }
+    orphaned.sort(key=lambda o: (_CATEGORY_ORDER.get(o["category"], 99), o["path"]))
 
     return {
         "entities_dir_found": True,
         "missing_entity_pages": missing_entity_pages,
         "ip_drift": ip_drift,
-        "orphaned_entity_pages": sorted(orphaned),
+        "orphaned_entity_pages": orphaned,
         "unmapped_hosts": unmapped_hosts,
     }
 
