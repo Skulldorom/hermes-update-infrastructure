@@ -127,6 +127,22 @@ class TestCrossReference:
         assert result["unmapped_hosts"][0]["name"] == "Glances"
         assert result["unmapped_hosts"][0]["host"] == "mystery-box"
 
+    def test_pulse_host_fallback_resolves_entity(self):
+        """Service named aegis should match entity aegis-proxmox via pulse_host."""
+        data = {"services": [{"name": "aegis", "ip": "192.168.0.6", "host": ""}]}
+        entity_pages = {
+            "aegis-proxmox": {
+                "pulse_host": "aegis",
+                "ip": "192.168.0.6",
+                "category": "infrastructure",
+                "_slug": "aegis-proxmox",
+                "_path": "/fake/aegis-proxmox.md",
+            },
+        }
+        result = cross_reference(data, entity_pages)
+        assert len(result["missing_entity_pages"]) == 0
+        assert len(result["ip_drift"]) == 0
+
     def test_mapped_host_not_flagged(self):
         data = {
             "services": [{"name": "Glances", "ip": "192.168.0.50",

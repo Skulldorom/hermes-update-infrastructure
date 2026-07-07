@@ -436,6 +436,17 @@ def cross_reference(data: dict, entity_pages: dict | None) -> dict:
         entity = entity_pages.get(slug)
 
         if entity is None:
+            # Fallback: try matching via pulse_host frontmatter field.
+            # Entity pages like "aegis-proxmox" declare pulse_host: aegis,
+            # so Pulse service named "aegis" resolves to the correct entity
+            # instead of falsely reporting as missing.
+            for _slug, _entity in entity_pages.items():
+                ph = _entity.get("pulse_host")
+                if ph and _slugify(str(ph)) == slug:
+                    entity = _entity
+                    break
+
+        if entity is None:
             # Skip well-known generic infrastructure names — they are stack/type
             # labels, not specific hosts, so a missing entity page is expected.
             if slug not in generic_names:
