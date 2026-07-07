@@ -272,10 +272,17 @@ def _render_cross_ref_summary(lines: list[str], cross_ref: dict) -> None:
             lines.append(f"   \u2022 {item['name']}: host={item['host']}{sug_str}")
 
     if orphaned:
-        lines.append(f"\n\u2139\ufe0f {len(orphaned)} orphaned entity page(s):")
-        for p in orphaned:
-            lines.append(f"   \u2022 {p}")
-        lines.append("   \u2192 /update-infrastructure cleanup")
+        # Count by category for a concise summary
+        cat_counts: dict[str, int] = {}
+        for item in orphaned:
+            if isinstance(item, dict):
+                cat = item.get("category", "truly_orphaned")
+                cat_counts[cat] = cat_counts.get(cat, 0) + 1
+            else:
+                cat_counts["truly_orphaned"] = cat_counts.get("truly_orphaned", 0) + 1
+        cat_summary = ", ".join(f"{c}:{n}" for c, n in sorted(cat_counts.items()))
+        lines.append(f"\nℹ️  {len(orphaned)} orphaned entity page(s) ({cat_summary})")
+        lines.append("   → /update-infrastructure cleanup")
 
 
 def _render_status(data: dict) -> str:
@@ -358,13 +365,32 @@ def _render_check(result: dict) -> str:
 
 
 def _render_cleanup(result: dict) -> str:
-    """Render orphaned entity page list."""
+    """Render orphaned entity page list with categories."""
     orphaned = result.get("orphaned_pages", [])
     if not orphaned:
-        return "\u2705 No orphaned entity pages found"
-    lines = [f"\u2139\ufe0f {len(orphaned)} orphaned entity page(s):"]
-    for p in orphaned:
-        lines.append(f"   \u2795 {p}")
+        return "✅ No orphaned entity pages found"
+
+    # Group by category
+    by_category: dict[str, list[str]] = {}
+    for item in orphaned:
+        cat = item.get("category", "truly_orphaned")
+        path = item.get("path", item) if isinstance(item, dict) else item
+        by_category.setdefault(cat, []).append(path)
+
+    _CAT_LABELS: dict[str, str] = {
+        "truly_orphaned": "❓ Orphaned — no Pulse connection",
+        "has_pulse_host_match": "🔗 Resolvable via pulse_host",
+        "has_pulse_container_match": "📦 Parent of containers (pulse_containers set)",
+        "networking_device": "🌐 Networking devices (expected)",
+        "infrastructure_node": "🖥️ Infrastructure nodes (expected)",
+    }
+
+    lines = [f"ℹ️  {len(orphaned)} orphaned entity page(s):"]
+    for category, paths in by_category.items():
+        label = _CAT_LABELS.get(category, f"  {category}")
+        lines.append(f"\n  {label}:")
+        for p in sorted(paths):
+            lines.append(f"     ➕ {p}")
     return "\n".join(lines)
 
 
@@ -578,11 +604,14 @@ def _build_review_prompt(data: dict) -> str:
 
             if orphaned:
                 lines.append("")
+                cat_counts: dict[str, int] = {}
+                for item in orphaned:
+                    cat = item.get("category", "truly_orphaned") if isinstance(item, dict) else "truly_orphaned"
+                    cat_counts[cat] = cat_counts.get(cat, 0) + 1
+                cat_summary = ", ".join(f"{c}:{n}" for c, n in sorted(cat_counts.items()))
                 lines.append(
-                    f"ℹ️ {len(orphaned)} orphaned entity page(s):"
+                    f"ℹ️ {len(orphaned)} orphaned entity page(s) ({cat_summary})"
                 )
-                for p in orphaned:
-                    lines.append(f"  • {p}")
                 lines.append(
                     "  → /update-infrastructure cleanup for details"
                 )
@@ -734,11 +763,14 @@ def _build_review_prompt(data: dict) -> str:
 # Tool handler (returns JSON for LLM agent loop)
 # ---------------------------------------------------------------------------
 
-def _handle_update_tool(raw_args: str = "") -> str:
+def _handle_update_tool(raw_args: str = "", **kwargs) -> str:
     """Tool handler for update_infrastructure -- returns structured JSON.
 
     Runs the same sync pipeline as the slash command but returns a JSON
     dict so the LLM can process, summarise, and follow up naturally.
+
+    Accepts **kwargs to absorb any extra parameters (e.g. task_id) that
+    the tool wrapper may pass.
     """
     t_start = time.monotonic()
     started_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -798,15 +830,6 @@ def _handle_update_tool(raw_args: str = "") -> str:
         data["cross_ref"] = cross_ref
         data["entities_dir"] = str(wiki_root / "entities")
 
-        generated_path = wiki_root / config.GENERATED_OUTPUT_DIR / config.GENERATED_DATA_FILE
-        log_path = wiki_root / "log.md"
-
-        result = updater.write_generated_file(str(generated_path), data)
-        updater.update_wiki_log(str(log_path), result)
-
-        machines_data = parser_wiki.parse_entity_pages(str(wiki_root / "entities"))
-        topology = _build_topology_dict(machines_data)
-
         # --- NPM sync (best-effort; skipped when credentials are not configured) ---
         npm_result: dict | None = None
         npm_url = config.get_npm_url()
@@ -820,6 +843,16 @@ def _handle_update_tool(raw_args: str = "") -> str:
                 logger.warning("NPM sync failed: %s", npm_exc)
                 npm_result = {"error": str(npm_exc)}
 
+        generated_path = wiki_root / config.GENERATED_OUTPUT_DIR / config.GENERATED_DATA_FILE
+        log_path = wiki_root / "log.md"
+
+        result = updater.write_generated_file(str(generated_path), data,
+                                               npm_data=npm_result)
+        updater.update_wiki_log(str(log_path), result)
+
+        machines_data = parser_wiki.parse_entity_pages(str(wiki_root / "entities"))
+        topology = _build_topology_dict(machines_data)
+
         # Execute intent and capture structured result
         intent_result = None
         if intent == "create":
@@ -830,7 +863,8 @@ def _handle_update_tool(raw_args: str = "") -> str:
             host = (svc or {}).get("host", "")
             os_name = (svc or {}).get("os", "")
             vmid = (svc or {}).get("vmid", "")
-            r = parser.scaffold_entity_page(wiki_root, name, ip, host, os_name, vmid)
+            r = parser.scaffold_entity_page(wiki_root, name, ip, host, os_name, vmid,
+                                             entity_pages=entity_pages)
             intent_result = {"created": r["created"], "path": r["path"]}
             if not r["created"]:
                 intent_result["reason"] = r.get("reason", "")

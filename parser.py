@@ -163,6 +163,184 @@ def load_entity_pages(wiki_root: Path) -> dict | None:
     return result
 
 
+# Well-known container name suffixes that indicate stack components.
+# Stripped greedily from the end to group containers into stacks.
+# e.g. "authentik-worker-1" → strip "-1" → "authentik-worker" → strip "-worker"
+_STACK_SUFFIX_RE = re.compile(
+    r"[-_](?:\d+|db|postgres|postgresql|redis|worker|proxy|server|cache|"
+    r"broker|mq|queue|web|frontend|backend|api|scheduler|cron|beat|"
+    r"migrate|init|seed|backup|restore|sidecar|exporter|collector)$",
+    re.IGNORECASE,
+)
+
+
+def _strip_component_suffixes(slug: str) -> str:
+    """Strip well-known stack component suffixes from a container slug.
+
+    Strips greedily from the end: ``\"authentik-worker-1\"`` →
+    ``\"authentik\"`` (via ``-1`` then ``-worker``).
+
+    Returns the original slug unchanged when no suffixes match.
+    """
+    while True:
+        stripped = _STACK_SUFFIX_RE.sub("", slug)
+        if stripped == slug:
+            break
+        slug = stripped
+    return slug
+
+
+def _extract_pulse_containers(entity: dict) -> list[str]:
+    """Extract the pulse_containers list from an entity frontmatter dict.
+
+    Handles both YAML list and comma-separated string formats.
+    Returns slugified container names.
+    """
+    raw = entity.get("pulse_containers")
+    if not raw:
+        return []
+    if isinstance(raw, list):
+        items = [str(c).strip() for c in raw if str(c).strip()]
+    else:
+        items = [c.strip() for c in str(raw).split(",") if c.strip()]
+    return [_slugify(item) for item in items if _slugify(item)]
+
+
+def _append_to_pulse_containers(wiki_root: Path, parent_slug: str, container_name: str) -> bool:
+    """Append a container name to a parent entity's pulse_containers frontmatter.
+
+    Reads the entity file, parses frontmatter, adds *container_name* to
+    the ``pulse_containers`` list if not already present, and writes back.
+
+    Returns True if the file was modified, False if the container was
+    already listed or the parent page was not found.
+    """
+    page_path = wiki_root / "entities" / f"{parent_slug}.md"
+    if not page_path.exists():
+        return False
+
+    original = page_path.read_text()
+    fm = _parse_frontmatter(page_path)
+    if not fm:
+        return False
+
+    existing = _extract_pulse_containers(fm)
+    if _slugify(container_name) in existing:
+        return False  # already there
+
+    # Build the updated frontmatter
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    existing_display = [str(c).strip() for c in (
+        fm.get("pulse_containers") if isinstance(fm.get("pulse_containers"), list)
+        else str(fm.get("pulse_containers", "")).split(",")
+    ) if str(c).strip()]
+    existing_display.append(container_name)
+
+    # Find the pulse_containers line and replace, or insert
+    pc_pattern = re.compile(r"^(pulse_containers:\\s*).*$", re.MULTILINE)
+    updated_pattern = re.compile(r"^(updated:\\s*).*$", re.MULTILINE)
+
+    if pc_pattern.search(original):
+        # YAML list format: pulse_containers: [a, b, c]
+        yaml_list = "[" + ", ".join(existing_display) + "]"
+        updated = pc_pattern.sub(rf"\\g<1>{yaml_list}", original)
+    else:
+        # Insert before the closing --- of the frontmatter
+        end_fm = original.find("---", 3)
+        if end_fm == -1:
+            return False
+        yaml_list = "[" + ", ".join(existing_display) + "]"
+        new_line = f"pulse_containers: {yaml_list}\n"
+        updated = original[:end_fm] + new_line + original[end_fm:]
+
+    if updated_pattern.search(updated):
+        updated = updated_pattern.sub(rf"\\g<1>{today}", updated)
+
+    page_path.write_text(updated)
+    return True
+
+
+def _detect_stack_groups(
+    services: list[dict],
+    entity_pages: dict,
+) -> set[str]:
+    """Group sibling Docker containers into stacks and return covered slugs.
+
+    Strips well-known suffixes and trailing numbers from container names,
+    groups by the remaining prefix as the "stack name", and marks all
+    containers in a group as covered when the stack name matches an entity
+    slug or any ``pulse_containers`` entry.
+
+    Returns a set of container slugs that should be excluded from the
+    "missing entity pages" report.
+    """
+    entity_slugs = set(entity_pages.keys())
+
+    # Collect all pulse_containers entries as a flat set of slugs
+    pulse_container_slugs: set[str] = set()
+    for entity in entity_pages.values():
+        raw = entity.get("pulse_containers")
+        if not raw:
+            continue
+        items = raw if isinstance(raw, list) else [
+            s.strip() for s in str(raw).split(",")
+        ]
+        for item in items:
+            slug = _slugify(str(item).strip())
+            if slug:
+                pulse_container_slugs.add(slug)
+
+    covered: set[str] = set()
+    stack_groups: dict[str, list[str]] = {}
+
+    for svc in services:
+        slug = _slugify(svc["name"])
+        # Already covered by entity page or pulse_containers — skip
+        if slug in entity_slugs or slug in pulse_container_slugs:
+            continue
+        # Strip well-known suffixes greedily from the end
+        stack_name = _strip_component_suffixes(slug)
+        # Only group when suffixes were actually stripped
+        if stack_name and stack_name != slug:
+            stack_groups.setdefault(stack_name, []).append(slug)
+
+    # Mark containers as covered when their stack name resolves to an entity
+    for stack_name, container_slugs in stack_groups.items():
+        if stack_name in entity_slugs or stack_name in pulse_container_slugs:
+            covered.update(container_slugs)
+        # Also check slugified pulse_host values
+        for entity in entity_pages.values():
+            pulse_host = entity.get("pulse_host")
+            if pulse_host and _slugify(str(pulse_host)) == stack_name:
+                covered.update(container_slugs)
+                break
+
+    return covered
+
+
+def _categorize_orphan(slug: str, entity: dict) -> str:
+    """Categorize an orphaned entity page for actionable cleanup output.
+
+    Categories (in descending order of actionability):
+    * ``truly_orphaned`` — no connection to Pulse at all; candidate for removal
+    * ``has_pulse_host_match`` — entity has ``pulse_host`` set; may resolve with tweaks
+    * ``has_pulse_container_match`` — entity has ``pulse_containers`` set; parent of stacks
+    * ``networking_device`` — entity category is networking; expected, keep
+    * ``infrastructure_node`` — entity category is infrastructure; expected, keep
+    """
+    fm_category = str(entity.get("category", "")).lower()
+
+    if "infrastructure" in fm_category or "infra" in fm_category:
+        return "infrastructure_node"
+    if "networking" in fm_category or "network" in fm_category:
+        return "networking_device"
+    if entity.get("pulse_host"):
+        return "has_pulse_host_match"
+    if entity.get("pulse_containers"):
+        return "has_pulse_container_match"
+    return "truly_orphaned"
+
+
 def cross_reference(data: dict, entity_pages: dict | None) -> dict:
     """Cross-reference Pulse services against wiki entity pages.
 
@@ -221,6 +399,34 @@ def cross_reference(data: dict, entity_pages: dict | None) -> dict:
         known_hosts.add(_slugify(alias_key))
         known_hosts.update(targets)
 
+    # Expand known_hosts and service_slugs with pulse_host / pulse_containers
+    # frontmatter — entities can declare their Pulse name mapping directly,
+    # eliminating the need for opaque server_aliases config entries.
+    _pulse_container_slugs: set[str] = set()
+    for _slug, entity in entity_pages.items():
+        pulse_host = entity.get("pulse_host")
+        if pulse_host:
+            known_hosts.add(_slugify(str(pulse_host)))
+        pulse_containers_raw = entity.get("pulse_containers")
+        if pulse_containers_raw:
+            if isinstance(pulse_containers_raw, list):
+                containers = [str(c).strip() for c in pulse_containers_raw if str(c).strip()]
+            elif isinstance(pulse_containers_raw, str):
+                containers = [c.strip() for c in pulse_containers_raw.split(",") if c.strip()]
+            else:
+                containers = []
+            for container_name in containers:
+                container_slug = _slugify(container_name)
+                _pulse_container_slugs.add(container_slug)
+                service_slugs.add(container_slug)
+                known_hosts.add(container_slug)
+
+    # Run stack detection heuristic — strip component suffixes from Docker
+    # container names and mark containers as covered when their parent stack
+    # has an entity page or pulse_containers entry.
+    stack_covered = _detect_stack_groups(services, entity_pages)
+    service_slugs.update(stack_covered)
+
     missing_entity_pages: list[dict] = []
     ip_drift: list[dict] = []
     unmapped_hosts: list[dict] = []
@@ -233,6 +439,10 @@ def cross_reference(data: dict, entity_pages: dict | None) -> dict:
             # Skip well-known generic infrastructure names — they are stack/type
             # labels, not specific hosts, so a missing entity page is expected.
             if slug not in generic_names:
+                # Skip services already covered by pulse_containers or stack
+                # detection — they belong to a parent entity page.
+                if slug in _pulse_container_slugs or slug in stack_covered:
+                    continue
                 # Skip services explicitly suppressed via SUPPRESS_ENTITY_CHECK
                 if svc["name"].lower() not in suppressed_names:
                     # Skip services whose host field maps to a known entity
@@ -281,17 +491,29 @@ def cross_reference(data: dict, entity_pages: dict | None) -> dict:
 
     # Orphaned entity pages: slugs not matched by any service slug.
     # Personal device / people pages are silently excluded.
-    orphaned = [
-        f"entities/{slug}.md"
-        for slug, entity in entity_pages.items()
-        if slug not in service_slugs and not _is_personal_device_entity(entity)
-    ]
+    # Categorized for actionable cleanup output.
+    orphaned: list[dict] = []
+    for slug, entity in entity_pages.items():
+        if slug in service_slugs or _is_personal_device_entity(entity):
+            continue
+        category = _categorize_orphan(slug, entity)
+        orphaned.append({"path": f"entities/{slug}.md", "category": category})
+
+    # Sort: truly_orphaned first, then infrastructure/nodes last
+    _CATEGORY_ORDER = {
+        "truly_orphaned": 0,
+        "has_pulse_host_match": 1,
+        "has_pulse_container_match": 2,
+        "networking_device": 3,
+        "infrastructure_node": 4,
+    }
+    orphaned.sort(key=lambda o: (_CATEGORY_ORDER.get(o["category"], 99), o["path"]))
 
     return {
         "entities_dir_found": True,
         "missing_entity_pages": missing_entity_pages,
         "ip_drift": ip_drift,
-        "orphaned_entity_pages": sorted(orphaned),
+        "orphaned_entity_pages": orphaned,
         "unmapped_hosts": unmapped_hosts,
     }
 
@@ -303,6 +525,7 @@ def scaffold_entity_page(
     host: str = "",
     os: str = "",
     vmid: str | int = "",
+    entity_pages: dict | None = None,
 ) -> dict:
     """Scaffold a new entity page for a service that has no existing page.
 
@@ -313,6 +536,11 @@ def scaffold_entity_page(
         host: Proxmox node name or Docker host name from Pulse.
         os: OS name from Pulse (e.g. "Debian GNU/Linux 12").
         vmid: CT/VM ID from Pulse.
+        entity_pages: Optional dict from :func:`load_entity_pages`.  When
+            provided, checks for stack membership before creating —
+            containers belonging to an existing parent stack are appended
+            to the parent's ``pulse_containers`` frontmatter instead of
+            getting a standalone page.
 
     Returns:
         A dict with keys:
@@ -324,7 +552,13 @@ def scaffold_entity_page(
         ``slug`` (str, only when created)
             The slugified filename stem.
         ``reason`` (str, only when not created)
-            Why the file was not created.
+            Why the file was not created.  Possible reasons:
+
+            * ``"already exists"`` — file already present
+            * ``"belongs to stack: <parent>"`` — container is listed in
+              parent's ``pulse_containers``
+            * ``"appended to <parent>/pulse_containers"`` — container was
+              added to the parent entity as a stack member
     """
     slug = _slugify(name)
     entities_dir = wiki_root / "entities"
@@ -333,6 +567,31 @@ def scaffold_entity_page(
     page_path = entities_dir / f"{slug}.md"
     if page_path.exists():
         return {"created": False, "path": str(page_path), "reason": "already exists"}
+
+    # ── Stack-aware check: avoid entity page sprawl for stack components ──
+    if entity_pages is not None:
+        # Check 1: container already listed in another entity's pulse_containers
+        for parent_slug, entity in entity_pages.items():
+            if slug in _extract_pulse_containers(entity):
+                return {
+                    "created": False,
+                    "path": str(page_path),
+                    "reason": f"belongs to stack: {parent_slug}",
+                }
+
+        # Check 2: container can be grouped via suffix stripping heuristic
+        stack_name = _strip_component_suffixes(slug)
+        if stack_name and stack_name != slug and stack_name in entity_pages:
+            appended = _append_to_pulse_containers(wiki_root, stack_name, name)
+            return {
+                "created": False,
+                "path": str(wiki_root / "entities" / f"{stack_name}.md"),
+                "reason": (
+                    f"appended to {stack_name}/pulse_containers (stack member)"
+                    if appended else
+                    f"stack {stack_name} exists but append failed"
+                ),
+            }
 
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
