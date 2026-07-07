@@ -402,6 +402,7 @@ def cross_reference(data: dict, entity_pages: dict | None) -> dict:
     # Expand known_hosts and service_slugs with pulse_host / pulse_containers
     # frontmatter — entities can declare their Pulse name mapping directly,
     # eliminating the need for opaque server_aliases config entries.
+    _pulse_container_slugs: set[str] = set()
     for _slug, entity in entity_pages.items():
         pulse_host = entity.get("pulse_host")
         if pulse_host:
@@ -416,6 +417,7 @@ def cross_reference(data: dict, entity_pages: dict | None) -> dict:
                 containers = []
             for container_name in containers:
                 container_slug = _slugify(container_name)
+                _pulse_container_slugs.add(container_slug)
                 service_slugs.add(container_slug)
                 known_hosts.add(container_slug)
 
@@ -437,6 +439,10 @@ def cross_reference(data: dict, entity_pages: dict | None) -> dict:
             # Skip well-known generic infrastructure names — they are stack/type
             # labels, not specific hosts, so a missing entity page is expected.
             if slug not in generic_names:
+                # Skip services already covered by pulse_containers or stack
+                # detection — they belong to a parent entity page.
+                if slug in _pulse_container_slugs or slug in stack_covered:
+                    continue
                 # Skip services explicitly suppressed via SUPPRESS_ENTITY_CHECK
                 if svc["name"].lower() not in suppressed_names:
                     # Skip services whose host field maps to a known entity
