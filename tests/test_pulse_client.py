@@ -66,7 +66,7 @@ class TestBuildServiceList:
         resources = [
             {
                 "id": "abc123",
-                "type": "docker-container",
+                "type": "docker-service",
                 "name": "qbittorrent",
                 "platformType": "docker",
                 "status": "running",
@@ -87,7 +87,7 @@ class TestBuildServiceList:
         assert svc["name"] == "qbittorrent"
         assert svc["ip"] == ""
         assert svc["host"] == "TheHoard"
-        assert svc["type"] == "docker-container"
+        assert svc["type"] == "docker-service"
         assert svc["parent_id"] == "fe93158d"
 
     def test_empty_resources(self):
@@ -106,7 +106,7 @@ class TestBuildTopology:
         resources = [
             {
                 "id": "abc",
-                "type": "container",
+                "type": "system-container",
                 "name": "pihole",
                 "platformType": "proxmox-pve",
                 "status": "running",
@@ -126,7 +126,7 @@ class TestBuildTopology:
         resources = [
             {
                 "id": "node1",
-                "type": "node",
+                "type": "agent",
                 "name": "aegis",
                 "platformType": "proxmox-pve",
                 "status": "online",
