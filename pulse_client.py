@@ -14,7 +14,6 @@ try:
 except ImportError:  # pragma: no cover - supports direct module loading in tests
     import config  # type: ignore
 
-PULSE_API_URL = os.environ.get("PULSE_API_URL", config.PULSE_API_URL)
 PULSE_API_TOKEN_ENV_VAR = config.PULSE_API_TOKEN_ENV_VAR
 
 
@@ -25,8 +24,8 @@ def _headers() -> dict[str, str]:
 
 
 def _base_url() -> str:
-    """Return the Pulse base URL, respecting the PULSE_API_URL env var."""
-    return os.environ.get("PULSE_API_URL", PULSE_API_URL).rstrip("/")
+    """Return the Pulse base URL, resolving config.yaml → env var → default."""
+    return config.get_pulse_url()
 
 
 def fetch_state(timeout: int = 15) -> dict:

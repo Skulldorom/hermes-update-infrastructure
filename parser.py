@@ -17,16 +17,6 @@ except ImportError:  # pragma: no cover - supports direct module loading in test
     import config  # type: ignore
     import pulse_client  # type: ignore
 
-# Default set of generic infrastructure/platform names that are NOT specific hosts.
-# Services whose slugified name matches one of these are filtered from "missing entity pages"
-# unless a matching entity page already exists for that name.
-# Extend via the NOISE_FILTER_NAMES env var (comma-separated list).
-_DEFAULT_GENERIC_INFRA_NAMES: frozenset[str] = config.DEFAULT_GENERIC_INFRA_NAMES
-
-# Frontmatter ``type`` values that indicate personal devices / people (not services).
-# Entity pages with these types are silently excluded from orphaned-page reports.
-_PERSONAL_DEVICE_TYPES: frozenset[str] = config.PERSONAL_DEVICE_TYPES
-
 
 def _slugify(name: str) -> str:
     """Convert a service/entity name to a lowercase hyphenated slug.
@@ -40,49 +30,31 @@ def _slugify(name: str) -> str:
 def _get_generic_infra_names() -> frozenset[str]:
     """Return the set of generic infra names to filter from missing-entity reports.
 
-    Reads the ``NOISE_FILTER_NAMES`` env var for additional names (comma-separated).
+    Delegates to :func:`config.get_generic_infra_names` which resolves
+    ``infrastructure-plugin.generic_infra_names`` in Hermes config.yaml,
+    then the ``NOISE_FILTER_NAMES`` env var, then the built-in default set.
     """
-    env_val = os.environ.get("NOISE_FILTER_NAMES", "").strip()
-    if env_val:
-        extra = frozenset(_slugify(n.strip()) for n in env_val.split(",") if n.strip())
-        return _DEFAULT_GENERIC_INFRA_NAMES | extra
-    return _DEFAULT_GENERIC_INFRA_NAMES
+    return config.get_generic_infra_names()
 
 
 def _parse_server_aliases() -> dict[str, list[str]]:
-    """Parse ``SERVER_ALIASES`` env var into a short-name → [resolved_slugs] dict.
+    """Return the server alias mapping (short name → list of entity slugs).
 
-    Format: ``key=value,key=value`` where *value* may be a single slug or a
-    pipe-delimited list (e.g. ``nas=thehoard-nas,proxmox=aegis-proxmox|thesentinel-proxmox``).
-
-    Returns:
-        A dict mapping each short alias key to a list of resolved entity slugs.
-        Empty dict when the env var is unset or empty.
+    Delegates to :func:`config.get_server_aliases` which resolves
+    ``infrastructure-plugin.server_aliases`` in Hermes config.yaml,
+    then the ``SERVER_ALIASES`` env var, then an empty dict.
     """
-    env_val = os.environ.get("SERVER_ALIASES", "").strip()
-    if not env_val:
-        return {}
-    aliases: dict[str, list[str]] = {}
-    for pair in env_val.split(","):
-        pair = pair.strip()
-        if "=" not in pair:
-            continue
-        key, value = pair.split("=", 1)
-        key = key.strip().lower()
-        aliases[key] = [v.strip() for v in value.split("|") if v.strip()]
-    return aliases
+    return config.get_server_aliases()
 
 
 def _get_suppressed_entity_names() -> frozenset[str]:
     """Return service names to skip in the missing-entity-page report.
 
-    Reads the ``SUPPRESS_ENTITY_CHECK`` env var (comma-separated list of
-    service display names).  Matching is case-insensitive.
+    Delegates to :func:`config.get_suppressed_entity_names` which resolves
+    ``infrastructure-plugin.suppress_entity_check`` in Hermes config.yaml,
+    then the ``SUPPRESS_ENTITY_CHECK`` env var, then an empty frozenset.
     """
-    env_val = os.environ.get("SUPPRESS_ENTITY_CHECK", "").strip()
-    if not env_val:
-        return frozenset()
-    return frozenset(n.strip().lower() for n in env_val.split(",") if n.strip())
+    return config.get_suppressed_entity_names()
 
 
 def _is_personal_device_entity(entity: dict) -> bool:
@@ -90,11 +62,12 @@ def _is_personal_device_entity(entity: dict) -> bool:
 
     Checks the ``type`` field and ``tags`` list in the frontmatter.
     """
-    if str(entity.get("type", "")).lower() in _PERSONAL_DEVICE_TYPES:
+    personal_types = config.get_personal_device_types()
+    if str(entity.get("type", "")).lower() in personal_types:
         return True
     tags = entity.get("tags", [])
     if isinstance(tags, list):
-        return any(str(t).lower() in _PERSONAL_DEVICE_TYPES for t in tags)
+        return any(str(t).lower() in personal_types for t in tags)
     return False
 
 
