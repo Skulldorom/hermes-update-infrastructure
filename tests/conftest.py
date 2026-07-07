@@ -40,53 +40,48 @@ def mock_entity_page_factory(tmp_wiki):
 
 
 @pytest.fixture
-def mock_homepage_data():
-    """Return realistic parsed homepage data for testing."""
+def mock_pulse_data():
+    """Return realistic parsed Pulse API data for testing."""
     return {
         "services": [
             {
-                "name": "Pihole",
-                "group": "DNS",
-                "href": "https://pihole.skulldorom.xyz",
-                "site_monitor": "http://192.168.0.100",
-                "description": "DNS ad blocking",
-                "server": "docker-host",
-                "container": "pihole",
-                "widget_type": "pihole",
+                "name": "pihole",
+                "group": "docker",
+                "ip": "192.168.0.100",
+                "host": "thehoard",
+                "vmid": "",
+                "os": "Debian GNU/Linux 12",
+                "status": "running",
+                "type": "docker-container",
+                "parent_id": "fe93158d-abc",
+                "tags": [],
             },
             {
-                "name": "Authentik",
-                "group": "Auth",
-                "href": "https://auth.skulldorom.xyz",
-                "site_monitor": "http://192.168.0.200",
-                "description": "SSO provider",
-                "server": "docker-host",
+                "name": "authentik",
+                "group": "docker",
+                "ip": "192.168.0.200",
+                "host": "thehoard",
+                "vmid": "",
+                "os": "",
+                "status": "running",
+                "type": "docker-container",
+                "parent_id": "fe93158d-abc",
+                "tags": [],
             },
             {
-                "name": "Bento PDF",
-                "group": "Tools",
-                "href": "https://bento.skulldorom.xyz",
-                "site_monitor": "http://192.168.0.150",
-                "description": "PDF toolkit",
+                "name": "haos15.2",
+                "group": "proxmox-pve",
+                "ip": "192.168.0.7",
+                "host": "thesentinel",
+                "vmid": 103,
+                "os": "Home Assistant OS",
+                "status": "running",
+                "type": "vm",
+                "parent_id": "",
+                "tags": [],
             },
         ],
-        "bookmarks": [],
-        "subdomains": [
-            {
-                "subdomain": "pihole",
-                "name": "Pihole",
-                "href": "https://pihole.skulldorom.xyz",
-                "site_monitor": "http://192.168.0.100",
-                "group": "DNS",
-            },
-            {
-                "subdomain": "auth",
-                "name": "Authentik",
-                "href": "https://auth.skulldorom.xyz",
-                "site_monitor": "http://192.168.0.200",
-                "group": "Auth",
-            },
-        ],
+        "subdomains": [],
     }
 
 

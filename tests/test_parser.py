@@ -1,4 +1,4 @@
-"""Tests for parser helpers."""
+"""Tests for parser helpers and Pulse API integration."""
 
 import _bootstrap  # noqa: F401 — loads update_infrastructure
 
@@ -8,9 +8,8 @@ from update_infrastructure.parser import (
     _extract_ip_from_url,
     _is_personal_device_entity,
     _parse_frontmatter,
-    _parse_yaml,
     _slugify,
-    extract_subdomain,
+    scaffold_entity_page,
 )
 
 
@@ -53,20 +52,6 @@ class TestExtractIPFromURL:
         assert _extract_ip_from_url(None) is None
 
 
-class TestExtractSubdomain:
-    def test_skulldorom_xyz(self):
-        assert extract_subdomain({"href": "https://pihole.skulldorom.xyz"}) == "pihole"
-
-    def test_skulldorom_com(self):
-        assert extract_subdomain({"href": "https://auth.skulldorom.com"}) == "auth"
-
-    def test_no_href(self):
-        assert extract_subdomain({}) is None
-
-    def test_unrelated_domain(self):
-        assert extract_subdomain({"href": "https://github.com/Skulldorom"}) is None
-
-
 class TestParseFrontmatter:
     def test_valid_frontmatter(self, tmp_wiki):
         path = tmp_wiki / "test.md"
@@ -93,25 +78,6 @@ type: container
         assert result == {}
 
 
-class TestParseYAML:
-    def test_strips_comments(self, tmp_wiki):
-        path = tmp_wiki / "test.yaml"
-        path.write_text("""# This is a comment
-key: value
-# Another comment
-list:
-  - item1  # inline comment
-""")
-        result = _parse_yaml(path)
-        assert result["key"] == "value"
-
-    def test_empty_file(self, tmp_wiki):
-        path = tmp_wiki / "test.yaml"
-        path.write_text("")
-        result = _parse_yaml(path)
-        assert result == {}
-
-
 class TestIsPersonalDeviceEntity:
     def test_phone_type(self):
         assert _is_personal_device_entity({"type": "phone"}) is True
@@ -130,3 +96,44 @@ class TestIsPersonalDeviceEntity:
 
     def test_empty(self):
         assert _is_personal_device_entity({}) is False
+
+
+class TestScaffoldEntityPage:
+    def test_creates_with_pulse_fields(self, tmp_wiki):
+        result = scaffold_entity_page(
+            tmp_wiki, "PiHole",
+            ip="192.168.0.100",
+            host="thehoard",
+            os="Debian GNU/Linux 12",
+            vmid="",
+        )
+        assert result["created"] is True
+        content = (tmp_wiki / "entities" / "pihole.md").read_text()
+        assert "ip: 192.168.0.100" in content
+        assert "host: thehoard" in content
+        assert "os: Debian GNU/Linux 12" in content
+
+    def test_creates_with_vmid(self, tmp_wiki):
+        result = scaffold_entity_page(
+            tmp_wiki, "HAOS",
+            ip="192.168.0.7",
+            host="thesentinel",
+            os="Home Assistant OS",
+            vmid=103,
+        )
+        assert result["created"] is True
+        content = (tmp_wiki / "entities" / "haos.md").read_text()
+        assert "vmid: 103" in content
+
+    def test_no_duplicate(self, tmp_wiki):
+        scaffold_entity_page(tmp_wiki, "TestSvc", ip="192.168.0.1")
+        result2 = scaffold_entity_page(tmp_wiki, "TestSvc", ip="192.168.0.1")
+        assert result2["created"] is False
+        assert result2["reason"] == "already exists"
+
+    def test_minimal_no_optional_fields(self, tmp_wiki):
+        result = scaffold_entity_page(tmp_wiki, "BasicSvc")
+        assert result["created"] is True
+        content = (tmp_wiki / "entities" / "basicsvc.md").read_text()
+        assert "ip:" not in content
+        assert "host:" not in content
