@@ -242,6 +242,30 @@ def get_suppressed_entity_names() -> frozenset[str]:
     return frozenset()
 
 
+def get_suppressed_orphan_names() -> frozenset[str]:
+    """Return entity slugs to skip in the orphaned-entity-pages report.
+
+    Entity pages whose filename slug matches one of these names are excluded
+    from orphan reports — useful for real hardware, external services, and
+    other legitimate wiki pages that will never appear in Pulse.
+
+    Resolution order:
+    1. ``infrastructure-plugin.suppress_orphan_check`` in Hermes ``config.yaml``
+       (list of entity filename slugs, without ``.md`` extension)
+    2. Empty frozenset (default)
+    """
+    cfg = _load_infra_config()
+    if "suppress_orphan_check" in cfg:
+        raw = cfg["suppress_orphan_check"]
+        if isinstance(raw, list):
+            return frozenset(str(n).strip().lower() for n in raw if str(n).strip())
+        val = str(raw).strip()
+        if val:
+            return frozenset(n.strip().lower() for n in val.split(",") if n.strip())
+        return frozenset()
+    return frozenset()
+
+
 def get_pulse_url() -> str:
     """Return the Pulse API base URL.
 
