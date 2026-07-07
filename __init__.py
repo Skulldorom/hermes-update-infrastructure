@@ -734,11 +734,14 @@ def _build_review_prompt(data: dict) -> str:
 # Tool handler (returns JSON for LLM agent loop)
 # ---------------------------------------------------------------------------
 
-def _handle_update_tool(raw_args: str = "") -> str:
+def _handle_update_tool(raw_args: str = "", **kwargs) -> str:
     """Tool handler for update_infrastructure -- returns structured JSON.
 
     Runs the same sync pipeline as the slash command but returns a JSON
     dict so the LLM can process, summarise, and follow up naturally.
+
+    Accepts **kwargs to absorb any extra parameters (e.g. task_id) that
+    the tool wrapper may pass.
     """
     t_start = time.monotonic()
     started_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
