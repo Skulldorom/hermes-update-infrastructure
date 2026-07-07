@@ -163,6 +163,80 @@ def load_entity_pages(wiki_root: Path) -> dict | None:
     return result
 
 
+# Well-known container name suffixes that indicate stack components.
+# Stripped greedily from the end to group containers into stacks.
+# e.g. "authentik-worker-1" → strip "-1" → "authentik-worker" → strip "-worker"
+_STACK_SUFFIX_RE = re.compile(
+    r"[-_](?:\d+|db|postgres|postgresql|redis|worker|proxy|server|cache|"
+    r"broker|mq|queue|web|frontend|backend|api|scheduler|cron|beat|"
+    r"migrate|init|seed|backup|restore|sidecar|exporter|collector)$",
+    re.IGNORECASE,
+)
+
+
+def _detect_stack_groups(
+    services: list[dict],
+    entity_pages: dict,
+) -> set[str]:
+    """Group sibling Docker containers into stacks and return covered slugs.
+
+    Strips well-known suffixes and trailing numbers from container names,
+    groups by the remaining prefix as the "stack name", and marks all
+    containers in a group as covered when the stack name matches an entity
+    slug or any ``pulse_containers`` entry.
+
+    Returns a set of container slugs that should be excluded from the
+    "missing entity pages" report.
+    """
+    entity_slugs = set(entity_pages.keys())
+
+    # Collect all pulse_containers entries as a flat set of slugs
+    pulse_container_slugs: set[str] = set()
+    for entity in entity_pages.values():
+        raw = entity.get("pulse_containers")
+        if not raw:
+            continue
+        items = raw if isinstance(raw, list) else [
+            s.strip() for s in str(raw).split(",")
+        ]
+        for item in items:
+            slug = _slugify(str(item).strip())
+            if slug:
+                pulse_container_slugs.add(slug)
+
+    covered: set[str] = set()
+    stack_groups: dict[str, list[str]] = {}
+
+    for svc in services:
+        slug = _slugify(svc["name"])
+        # Already covered by entity page or pulse_containers — skip
+        if slug in entity_slugs or slug in pulse_container_slugs:
+            continue
+        # Strip well-known suffixes greedily from the end
+        stack_name = slug
+        while True:
+            stripped = _STACK_SUFFIX_RE.sub("", stack_name)
+            if stripped == stack_name:
+                break
+            stack_name = stripped
+        # Only group when suffixes were actually stripped
+        if stack_name and stack_name != slug:
+            stack_groups.setdefault(stack_name, []).append(slug)
+
+    # Mark containers as covered when their stack name resolves to an entity
+    for stack_name, container_slugs in stack_groups.items():
+        if stack_name in entity_slugs or stack_name in pulse_container_slugs:
+            covered.update(container_slugs)
+        # Also check slugified pulse_host values
+        for entity in entity_pages.values():
+            pulse_host = entity.get("pulse_host")
+            if pulse_host and _slugify(str(pulse_host)) == stack_name:
+                covered.update(container_slugs)
+                break
+
+    return covered
+
+
 def cross_reference(data: dict, entity_pages: dict | None) -> dict:
     """Cross-reference Pulse services against wiki entity pages.
 
@@ -240,6 +314,12 @@ def cross_reference(data: dict, entity_pages: dict | None) -> dict:
                 container_slug = _slugify(container_name)
                 service_slugs.add(container_slug)
                 known_hosts.add(container_slug)
+
+    # Run stack detection heuristic — strip component suffixes from Docker
+    # container names and mark containers as covered when their parent stack
+    # has an entity page or pulse_containers entry.
+    stack_covered = _detect_stack_groups(services, entity_pages)
+    service_slugs.update(stack_covered)
 
     missing_entity_pages: list[dict] = []
     ip_drift: list[dict] = []
