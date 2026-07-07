@@ -100,7 +100,9 @@ class TestCrossReference:
         }
         result = cross_reference(data, entity_pages)
         assert len(result["orphaned_entity_pages"]) == 1
-        assert "entities/stale-service.md" in result["orphaned_entity_pages"]
+        orphan = result["orphaned_entity_pages"][0]
+        assert orphan["path"] == "entities/stale-service.md"
+        assert orphan["category"] == "truly_orphaned"
 
     def test_personal_device_not_orphaned(self):
         data = {"services": []}
