@@ -24,13 +24,26 @@ class _FakeCtx:
         self.injected.append(message)
 
 
+def _mk_none_payload(review_prompt):
+    """Build a JSON payload matching what _handle_update_tool returns for
+    the default (no-args / 'none' intent) sync path."""
+    return json.dumps({
+        "intent": {"type": "none"},
+        "review_prompt": review_prompt,
+        "source": {"services": 0, "subdomains": 0},
+        "cross_reference": {},
+        "topology": {"machine_count": 0, "categories": {}, "connections": []},
+    })
+
+
 def test_default_slash_command_injects_review_prompt():
     ctx = _FakeCtx()
     register(ctx)
     handler = ctx.commands["update-infrastructure"]
 
     review_prompt = "## Infrastructure Sync Review\n- Ask: \"...\""
-    with patch("update_infrastructure._handle_update_tool", return_value=review_prompt):
+    payload = _mk_none_payload(review_prompt)
+    with patch("update_infrastructure._handle_update_tool", return_value=payload):
         result = handler("")
 
     assert result == "🔄 Sync complete. Handing off results to agent for review..."
@@ -72,7 +85,8 @@ def test_aliases_use_same_handoff_behavior():
     register(ctx)
 
     review_prompt = "## Infrastructure Sync Review\n- Ask: \"...\""
-    with patch("update_infrastructure._handle_update_tool", return_value=review_prompt):
+    payload = _mk_none_payload(review_prompt)
+    with patch("update_infrastructure._handle_update_tool", return_value=payload):
         result_a = ctx.commands["update-infra"]("")
         result_b = ctx.commands["sync-infra"]("")
 
