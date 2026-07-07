@@ -704,8 +704,10 @@ def fix_entity_ip(
 def parse_all() -> dict:
     """Fetch data from the Pulse API and return structured homelab data.
 
-    Uses ``PULSE_RESOURCE_TYPES`` (env var or config default) to filter
-    resource types returned by Pulse.
+    Switched to ``/api/state`` in Pulse v6 (``/api/resources`` returns
+    empty regardless of type filter).  Resources are extracted from
+    ``state[\"resources\"]`` and filtered to the four relevant resource types
+    (``system-container``, ``vm``, ``agent``, ``app-container``).
 
     Returns:
         A dict with keys:
@@ -718,9 +720,11 @@ def parse_all() -> dict:
             Empty list — subdomains are no longer auto-extracted from URLs.
             Store ``urls:`` in entity page frontmatter for URL tracking.
     """
-    resource_types = os.environ.get("PULSE_RESOURCE_TYPES", config.PULSE_RESOURCE_TYPES)
-    resources = pulse_client.fetch_resources(type_filter=resource_types)
-    services = pulse_client.build_service_list(resources)
+    state = pulse_client.fetch_state()
+    resources = state.get("resources", [])
+    relevant_types = ("system-container", "vm", "agent", "app-container")
+    relevant = [r for r in resources if r.get("type") in relevant_types]
+    services = pulse_client.build_service_list(relevant)
     return {
         "services": services,
         "subdomains": [],

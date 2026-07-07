@@ -57,7 +57,7 @@ def fetch_resources(type_filter: str = "", limit: int = 200, timeout: int = 15) 
 
     Args:
         type_filter: Comma-separated Pulse resource types, e.g.
-            ``"system-container,vm,agent"`` or ``"docker-service"``.
+            ``"system-container,vm,agent"`` or ``"app-container"``.
         limit: Maximum number of resources to return per request.
         timeout: HTTP timeout in seconds.
 
@@ -136,7 +136,7 @@ def build_service_list(resources: list[dict]) -> list[dict]:
     - ``vmid`` (int | str): CT/VM ID from Pulse, empty string for Docker containers.
     - ``os`` (str): OS name from ``platformData.osName``.
     - ``status`` (str): Runtime status (``running``, ``stopped``, etc.).
-    - ``type`` (str): Pulse resource type (``vm``, ``system-container``, ``docker-service``, ``agent``).
+    - ``type`` (str): Pulse resource type (``vm``, ``system-container``, ``app-container``, ``agent``).
     - ``parent_id`` (str): ``parentId`` from Pulse (for Docker containers → their host).
     - ``tags`` (list[str]): Tags from the Pulse resource.
     """
@@ -178,7 +178,7 @@ def build_topology(resources: list[dict]) -> dict:
         name = resource.get("name") or pd.get("hostName") or ""
         rtype = resource.get("type") or ""
 
-        if rtype in ("system-container", "docker-service"):
+        if rtype in ("system-container", "app-container"):
             category = "container"
         elif rtype in ("agent", "host"):
             category = "infrastructure"
