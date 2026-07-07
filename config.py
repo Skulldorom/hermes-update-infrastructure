@@ -31,17 +31,18 @@ PULSE_RESOURCE_TYPES: str = "container,vm,node,docker-container"
 DEFAULT_WIKI_ROOT: str = "~/wiki"
 
 #: Path to the main infrastructure page, relative to the wiki root.
+#: The Hermes agent updates this page surgically after reading the generated data file.
 WIKI_PAGE: str = "guides/homelab-infrastructure.md"
 
 # ---------------------------------------------------------------------------
-# Auto-section markers (used in wiki pages to delimit generated content)
+# Generated data file (auto-generated content, separate from the wiki page)
 # ---------------------------------------------------------------------------
 
-#: Opening marker prefix for auto-generated wiki sections.
-MARKER_START: str = "<!-- HOMEPAGE_AUTO:"
+#: Directory (relative to the wiki root) where the generated data file is written.
+GENERATED_OUTPUT_DIR: str = "generated"
 
-#: Closing marker prefix for auto-generated wiki sections.
-MARKER_END: str = "<!-- /HOMEPAGE_AUTO:"
+#: Filename of the auto-generated infrastructure data file.
+GENERATED_DATA_FILE: str = "infrastructure-data.md"
 
 # ---------------------------------------------------------------------------
 # Subdomain extraction

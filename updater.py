@@ -1,18 +1,13 @@
-"""Update wiki pages from parsed Pulse API data.
+"""Write auto-generated infrastructure data to a dedicated file.
 
-Key design: auto-generated sections are wrapped in:
-    <!-- HOMEPAGE_AUTO: section_name -->
-    ... generated content ...
-    <!-- /HOMEPAGE_AUTO: section_name -->
-
-Everything OUTSIDE these markers is preserved verbatim.
-Pulse is the authority — if a resource is removed from Pulse,
-it's removed from the auto sections. Added resources appear. Changed
-resources update. Content never in Pulse stays exactly as-is.
+Key design: auto-generated data is written to a separate file
+(``<wiki_root>/generated/infrastructure-data.md``).  The human-readable
+wiki page (``guides/homelab-infrastructure.md``) is never touched by this
+module — the Hermes agent reads the generated file and updates the wiki
+page surgically.
 """
 
 import hashlib
-import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -203,216 +198,106 @@ def _build_topology_diagram(data: dict) -> str:
     return "![Network Topology](../assets/topology.svg)\n"
 
 
-AUTO_SECTION_TEMPLATES = {
-    "service_groups": _build_service_groups,
-    "subdomains": _build_subdomain_table,
-    "cross_reference": _build_cross_reference_section,
-    "topology": _build_topology_diagram,
-}
+def write_generated_file(output_path: str, data: dict, dry_run: bool = False) -> dict:
+    """Write auto-generated infrastructure data to a dedicated file.
 
-MARKER_START = config.MARKER_START
-MARKER_END = config.MARKER_END
-
-
-def update_wiki_page(page_path: str, data: dict, dry_run: bool = False) -> dict:
-    """Update the homelab wiki page with fresh homepage data.
+    The content is always replaced wholesale — there are no markers or
+    partial updates.  The Hermes agent reads this file after sync and
+    updates ``guides/homelab-infrastructure.md`` surgically.
 
     Args:
-        page_path: Path to the markdown wiki page
-        data: Parsed homepage data from parser.parse_all()
-        dry_run: If True, return diff without writing
+        output_path: Full path where the generated file should be written.
+        data: Parsed data from ``parser.parse_all()`` (may include
+              ``cross_ref`` and ``entities_dir`` keys added by the caller).
+        dry_run: If True, return the result without writing.
 
     Returns:
         {
             "changed": bool,
-            "sections_updated": ["service_groups", ...],
-            "sections_unchanged": ["subdomains", ...],
-            "sections_added": ["new_section", ...],
-            "hash_before": "...",
-            "hash_after": "...",
+            "path": str,
+            "hash_before": str,
+            "hash_after": str,
         }
     """
-    path = Path(page_path)
-    if not path.exists():
-        # Page doesn't exist yet — generate the full page
-        new_content = _generate_full_page(data)
-        if not dry_run:
-            path.write_text(new_content)
-        return {
-            "changed": True,
-            "sections_updated": list(AUTO_SECTION_TEMPLATES.keys()),
-            "sections_unchanged": [],
-            "sections_added": list(AUTO_SECTION_TEMPLATES.keys()),
-            "hash_before": "none",
-            "hash_after": _hash_block(new_content),
-        }
+    path = Path(output_path)
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    original = path.read_text()
-    hash_before = _hash_block(original)
-
-    # Parse existing auto sections
-    updated = original
-    sections_updated = []
-    sections_unchanged = []
-    sections_added = []
-
-    for section_name, builder in AUTO_SECTION_TEMPLATES.items():
-        new_block = builder(data)
-        start_tag = f"{MARKER_START} {section_name} -->"
-        end_tag = f"{MARKER_END} {section_name} -->"
-
-        if start_tag in updated and end_tag in updated:
-            # Replace existing auto section
-            old_block = _extract_block(updated, start_tag, end_tag)
-            if old_block is not None and old_block.strip() == new_block.strip():
-                sections_unchanged.append(section_name)
-            else:
-                updated = _replace_block(updated, start_tag, end_tag, new_block)
-                sections_updated.append(section_name)
-        else:
-            # Section doesn't exist yet — append it
-            updated += f"\n\n{start_tag}\n{new_block}\n{end_tag}\n"
-            sections_added.append(section_name)
-
-    hash_after = _hash_block(updated)
-
-    # Bump frontmatter `updated:` date when content changes
-    if updated != original:
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        updated_pattern = re.compile(r"^(updated:\s*).*$", re.MULTILINE)
-        if updated_pattern.search(updated):
-            updated = updated_pattern.sub(rf"\g<1>{today}", updated)
-            hash_after = _hash_block(updated)
-
-    if updated != original:
-        if not dry_run:
-            path.write_text(updated)
-        return {
-            "changed": True,
-            "sections_updated": sections_updated,
-            "sections_unchanged": sections_unchanged,
-            "sections_added": sections_added,
-            "hash_before": hash_before,
-            "hash_after": hash_after,
-        }
-
-    return {
-        "changed": False,
-        "sections_updated": [],
-        "sections_unchanged": list(AUTO_SECTION_TEMPLATES.keys()),
-        "sections_added": [],
-        "hash_before": hash_before,
-        "hash_after": hash_after,
-    }
-
-
-def _extract_block(text: str, start_tag: str, end_tag: str) -> str | None:
-    """Extract the content between start_tag and end_tag markers."""
-    start_idx = text.find(start_tag)
-    if start_idx == -1:
-        return None
-    start_idx += len(start_tag)
-
-    end_idx = text.find(end_tag, start_idx)
-    if end_idx == -1:
-        return None
-
-    return text[start_idx:end_idx]
-
-
-def _replace_block(text: str, start_tag: str, end_tag: str, new_block: str) -> str:
-    """Replace the content between start_tag and end_tag with new_block."""
-    start_idx = text.find(start_tag)
-    end_idx = text.find(end_tag, start_idx)
-
-    if start_idx == -1 or end_idx == -1:
-        return text
-
-    before = text[:start_idx + len(start_tag)]
-    after = text[end_idx:]
-    return f"{before}\n{new_block}\n{after}"
-
-
-def _generate_full_page(data: dict) -> str:
-    """Generate a complete new homelab-infrastructure page from scratch."""
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    services = data.get("services", [])
+    subdomains = data.get("subdomains", [])
 
     lines = [
         "---",
-        "title: Homelab Infrastructure",
-        f"created: {today}",
-        f"updated: {today}",
-        "type: guide",
-        "tags: [self-hosted, server, linux, reference]",
-        "confidence: high",
+        f"generated_at: {now}",
+        f"source: {config.PULSE_API_URL}",
+        f"services: {len(services)}",
+        f"subdomains: {len(subdomains)}",
         "---",
         "",
-        "# Homelab Infrastructure",
+        "# Infrastructure Data (Auto-Generated)",
         "",
-    "> Auto-generated from [Pulse monitoring API](http://192.168.0.20:7655).",
-        "> Use `/update-infrastructure` to refresh.",
+        "> ⚠️ Do not edit this file manually — it is overwritten on every sync.",
+        "> The Hermes agent reads this file after `/update-infrastructure` runs",
+        "> and uses it to update `guides/homelab-infrastructure.md` surgically.",
         "",
         "---",
         "",
         "## Service Groups",
         "",
-        f"{MARKER_START} service_groups -->",
         _build_service_groups(data),
-        f"{MARKER_END} service_groups -->",
         "",
         "---",
         "",
         "## Domain / Subdomain Map",
         "",
-        f"{MARKER_START} subdomains -->",
         _build_subdomain_table(data),
-        f"{MARKER_END} subdomains -->",
         "",
         "---",
         "",
         "## Cross-Reference Findings",
         "",
-        f"{MARKER_START} cross_reference -->",
         _build_cross_reference_section(data),
-        f"{MARKER_END} cross_reference -->",
         "",
         "---",
         "",
-        "## Network Topology",
+        "## Topology",
         "",
-        "> Auto-generated Mermaid diagram from entity pages. Renders natively in Obsidian.",
-        "",
-        f"{MARKER_START} topology -->",
         _build_topology_diagram(data),
-        f"{MARKER_END} topology -->",
-        "",
-        "---",
-        "",
-        "## Manual Sections",
-        "",
-        "> Sections below are maintained manually and are not affected by `/update-infrastructure`.",
-        "> Add machine details, DHCP config, Tailscale info, etc. here.",
-        "",
     ]
 
-    return "\n".join(lines)
+    new_content = "\n".join(lines)
+    hash_after = _hash_block(new_content)
+
+    if path.exists():
+        original = path.read_text()
+        hash_before = _hash_block(original)
+        changed = new_content != original
+    else:
+        hash_before = "none"
+        changed = True
+
+    if changed and not dry_run:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(new_content)
+
+    return {
+        "changed": changed,
+        "path": str(path),
+        "hash_before": hash_before,
+        "hash_after": hash_after,
+    }
 
 
 def update_wiki_log(log_path: str, result: dict) -> None:
     """Append a log entry to the wiki log."""
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
-    parts = []
-    if result["sections_updated"]:
-        parts.append(f"updated: {', '.join(result['sections_updated'])}")
-    if result["sections_added"]:
-        parts.append(f"added: {', '.join(result['sections_added'])}")
-    if not parts:
+    if not result.get("changed"):
         return
 
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    generated_path = result.get("path", "unknown")
+
     entry = (
-        f"\n## [{today}] update | homelab-infrastructure (pulse sync)\n"
-        f"- {'; '.join(parts)}\n"
+        f"\n## [{today}] update | infrastructure-data (pulse sync)\n"
+        f"- generated file updated: {generated_path}\n"
         f"- pulse source: {config.PULSE_API_URL}\n"
     )
 
