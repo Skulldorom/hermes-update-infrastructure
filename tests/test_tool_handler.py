@@ -14,18 +14,22 @@ from update_infrastructure import _handle_update_tool
 class TestToolHandlerJSONShape:
     def _make_mock_parser(self):
         mock = MagicMock()
-        mock.fetch_repo.return_value = "/tmp/fake-config"
         mock.parse_all.return_value = {
             "services": [
-                {"name": "Pihole", "group": "DNS", "href": "https://pihole.example.com",
-                 "site_monitor": "http://192.168.0.100", "server": "docker-host"},
+                {
+                    "name": "pihole",
+                    "group": "docker",
+                    "ip": "192.168.0.100",
+                    "host": "thehoard",
+                    "vmid": "",
+                    "os": "Debian GNU/Linux 12",
+                    "status": "running",
+                    "type": "docker-container",
+                    "parent_id": "",
+                    "tags": [],
+                },
             ],
-            "bookmarks": [],
-            "subdomains": [
-                {"subdomain": "pihole", "name": "Pihole",
-                 "href": "https://pihole.example.com",
-                 "site_monitor": "http://192.168.0.100", "group": "DNS"},
-            ],
+            "subdomains": [],
         }
         mock.load_entity_pages.return_value = {
             "pihole": {"ip": "192.168.0.100", "type": "container",
@@ -36,10 +40,9 @@ class TestToolHandlerJSONShape:
             "missing_entity_pages": [],
             "ip_drift": [],
             "orphaned_entity_pages": [],
-            "unmapped_servers": [],
+            "unmapped_hosts": [],
         }
         mock._slugify = lambda s: s.lower().replace(" ", "-")
-        mock._extract_ip_from_url = lambda u: "192.168.0.100" if "192.168" in (u or "") else None
         mock.scaffold_entity_page.return_value = {
             "created": True, "path": "/fake/entities/test.md", "slug": "test",
         }
@@ -107,7 +110,7 @@ class TestToolHandlerJSONShape:
             data = json.loads(_handle_update_tool("json"))
 
         assert data["source"]["services"] == 1
-        assert data["source"]["subdomains"] == 1
+        assert data["source"]["subdomains"] == 0
 
     def test_topology_empty(self, tmp_wiki):
         mp = self._make_mock_parser()
@@ -164,7 +167,7 @@ class TestToolHandlerJSONShape:
 
     def test_error_handling(self, tmp_wiki):
         mp = self._make_mock_parser()
-        mp.fetch_repo.side_effect = RuntimeError("network gone")
+        mp.parse_all.side_effect = RuntimeError("network gone")
 
         with patch.dict(os.environ, {"WIKI_PATH": str(tmp_wiki)}), \
              patch("update_infrastructure.parser", mp):
@@ -228,3 +231,28 @@ class TestToolHandlerJSONShape:
 
         assert data["intent"]["type"] == "echo"
         assert data["intent"]["result"]["echoed_text"] == "random chatter"
+
+    def test_fix_all_uses_pulse_ip(self, tmp_wiki):
+        mp = self._make_mock_parser()
+        mp.cross_reference.return_value = {
+            "entities_dir_found": True,
+            "missing_entity_pages": [],
+            "ip_drift": [
+                {"name": "pihole", "pulse_ip": "192.168.0.200", "entity_ip": "192.168.0.100"},
+            ],
+            "orphaned_entity_pages": [],
+            "unmapped_hosts": [],
+        }
+        mu = self._make_mock_updater()
+        mw = self._make_mock_parser_wiki()
+
+        with patch.dict(os.environ, {"WIKI_PATH": str(tmp_wiki)}), \
+             patch("update_infrastructure.parser", mp), \
+             patch("update_infrastructure.updater", mu), \
+             patch("update_infrastructure.parser_wiki", mw):
+            data = json.loads(_handle_update_tool("fix all"))
+
+        assert data["intent"]["type"] == "fix_all"
+        fixed = data["intent"]["result"]["fixed"]
+        assert len(fixed) == 1
+        assert fixed[0]["ip"] == "192.168.0.200"

@@ -1,4 +1,4 @@
-"""Update wiki pages from parsed homepage data.
+"""Update wiki pages from parsed Pulse API data.
 
 Key design: auto-generated sections are wrapped in:
     <!-- HOMEPAGE_AUTO: section_name -->
@@ -6,9 +6,9 @@ Key design: auto-generated sections are wrapped in:
     <!-- /HOMEPAGE_AUTO: section_name -->
 
 Everything OUTSIDE these markers is preserved verbatim.
-Homepage is the authority — if a service is removed from homepage,
-it's removed from the auto sections. Added services appear. Changed
-services update. Content never in homepage stays exactly as-is.
+Pulse is the authority — if a resource is removed from Pulse,
+it's removed from the auto sections. Added resources appear. Changed
+resources update. Content never in Pulse stays exactly as-is.
 """
 
 import hashlib
@@ -29,12 +29,12 @@ def _hash_block(text: str) -> str:
 
 
 def _build_service_groups(data: dict) -> str:
-    """Generate the Service Groups section from homepage data."""
+    """Generate the Service Groups section from Pulse data."""
     services = data.get("services", [])
     if not services:
-        return "*(No services found in homepage config)*\n"
+        return "*(No services found in Pulse)*\n"
 
-    # Group by group_name, preserving order from homepage
+    # Group by platformType, preserving order from Pulse
     groups: dict[str, list[dict]] = {}
     group_order: list[str] = []
     for svc in services:
@@ -51,26 +51,27 @@ def _build_service_groups(data: dict) -> str:
 
         for svc in svcs:
             name = svc["name"]
-            desc = svc.get("description") or ""
-            href = svc.get("href") or ""
-            container = svc.get("container") or ""
-            server = svc.get("server") or ""
-            widget = svc.get("widget_type") or ""
-            monitor = svc.get("site_monitor") or ""
+            ip = svc.get("ip") or ""
+            host = svc.get("host") or ""
+            vmid = svc.get("vmid") or ""
+            os_name = svc.get("os") or ""
+            status = svc.get("status") or ""
+            svc_type = svc.get("type") or ""
 
-            parts = [f"- **{name}**"]
-            if desc:
-                parts.append(f" — {desc}")
-            parts.append(f"  [{href}]({href})" if href else "")
+            status_icon = "🟢" if status == "running" else ("🔴" if status in ("stopped", "offline") else "⚪")
+            parts = [f"- {status_icon} **{name}**"]
+
             extras = []
-            if monitor:
-                extras.append(f"monitor: `{monitor}`")
-            if container:
-                extras.append(f"container: `{container}`")
-            if server:
-                extras.append(f"server: `{server}`")
-            if widget:
-                extras.append(f"widget: `{widget}`")
+            if ip:
+                extras.append(f"ip: `{ip}`")
+            if host:
+                extras.append(f"host: `{host}`")
+            if vmid:
+                extras.append(f"vmid: `{vmid}`")
+            if os_name:
+                extras.append(f"os: {os_name}")
+            if svc_type:
+                extras.append(f"type: {svc_type}")
             if extras:
                 parts.append("  (" + ", ".join(extras) + ")")
 
@@ -82,28 +83,32 @@ def _build_service_groups(data: dict) -> str:
 
 
 def _build_subdomain_table(data: dict) -> str:
-    """Generate the Domain/Subdomain table from homepage data."""
+    """Generate the Domain/Subdomain table.
+
+    Subdomains are no longer auto-extracted from Pulse data (Pulse does not
+    know about reverse-proxy URLs).  Add ``urls:`` to entity page frontmatter
+    to track service URLs, or populate this section manually.
+    """
     subdomains = data.get("subdomains", [])
     if not subdomains:
-        return "*(No subdomains found)*\n"
+        return (
+            "*(No subdomain data available — Pulse does not expose reverse-proxy URLs.*\n"
+            "*Add `urls:` frontmatter to entity pages to track service URLs.)*\n"
+        )
 
     lines = [
-        "| Subdomain | Service | URL | Monitor | Group |",
-        "|-----------|---------|-----|---------|-------|",
+        "| Subdomain | Service | URL | Group |",
+        "|-----------|---------|-----|-------|",
     ]
 
-    # Sort by subdomain name
     for entry in sorted(subdomains, key=lambda s: s["subdomain"]):
         sub = entry["subdomain"]
         name = entry["name"]
         href = entry.get("href", "")
-        monitor = entry.get("site_monitor", "")
         group = entry.get("group", "")
 
-        monitor_cell = f"`{monitor}`" if monitor else "—"
         href_cell = f"<{href}>" if href else "—"
-
-        lines.append(f"| {sub} | {name} | {href_cell} | {monitor_cell} | {group} |")
+        lines.append(f"| {sub} | {name} | {href_cell} | {group} |")
 
     return "\n".join(lines) + "\n"
 
@@ -124,9 +129,9 @@ def _build_cross_reference_section(data: dict) -> str:
     missing = cross_ref.get("missing_entity_pages", [])
     ip_drift = cross_ref.get("ip_drift", [])
     orphaned = cross_ref.get("orphaned_entity_pages", [])
-    unmapped_servers = cross_ref.get("unmapped_servers", [])
+    unmapped_hosts = cross_ref.get("unmapped_hosts", [])
 
-    if not missing and not ip_drift and not orphaned and not unmapped_servers:
+    if not missing and not ip_drift and not orphaned and not unmapped_hosts:
         return "✅ All clear — no issues found\n"
 
     lines: list[str] = []
@@ -134,9 +139,9 @@ def _build_cross_reference_section(data: dict) -> str:
     if missing:
         lines.append("⚠️ New services without entity pages:")
         for svc in missing:
-            href = svc.get("href", "")
-            href_part = f" (href: {href})" if href else ""
-            lines.append(f"  - {svc['name']}{href_part} — no entity page found")
+            ip = svc.get("ip", "")
+            ip_part = f" (ip: {ip})" if ip else ""
+            lines.append(f"  - {svc['name']}{ip_part} — no entity page found")
             lines.append(
                 f'    → Run `/update-infrastructure create "{svc["name"]}"` to scaffold one'
             )
@@ -146,7 +151,7 @@ def _build_cross_reference_section(data: dict) -> str:
         lines.append("⚠️ IP drift detected:")
         for item in ip_drift:
             lines.append(
-                f"  - {item['name']}: siteMonitor=`{item['site_monitor']}`,"
+                f"  - {item['name']}: pulse_ip=`{item['pulse_ip']}`,"
                 f" entity ip=`{item['entity_ip']}` (MISMATCH)"
             )
             lines.append(
@@ -157,22 +162,22 @@ def _build_cross_reference_section(data: dict) -> str:
         lines.append("")
 
     if orphaned:
-        lines.append("ℹ️ Orphaned entity pages (not in homepage):")
+        lines.append("ℹ️ Orphaned entity pages (not in Pulse):")
         for page in orphaned:
             lines.append(f"  - {page}")
         lines.append("  → Run `/update-infrastructure cleanup` for details")
         lines.append("")
 
-    if unmapped_servers:
-        lines.append("⚠️ Unmapped server fields:")
-        for item in unmapped_servers:
+    if unmapped_hosts:
+        lines.append("⚠️ Unmapped host fields:")
+        for item in unmapped_hosts:
             suggestions = item.get("suggestions", [])
             suggestion_str = ""
             if suggestions:
                 quoted = ", ".join(f"`{s}`" for s in suggestions)
                 suggestion_str = f" — did you mean {quoted}?"
             lines.append(
-                f"  - {item['name']}: server=`{item['server']}`{suggestion_str}"
+                f"  - {item['name']}: host=`{item['host']}`{suggestion_str}"
             )
         lines.append("")
 
@@ -344,7 +349,7 @@ def _generate_full_page(data: dict) -> str:
         "",
         "# Homelab Infrastructure",
         "",
-        "> Auto-generated from [homepage dashboard config](https://github.com/Skulldorom/homepage).",
+    "> Auto-generated from [Pulse monitoring API](http://192.168.0.20:7655).",
         "> Use `/update-infrastructure` to refresh.",
         "",
         "---",
@@ -406,9 +411,9 @@ def update_wiki_log(log_path: str, result: dict) -> None:
         return
 
     entry = (
-        f"\n## [{today}] update | homelab-infrastructure (homepage sync)\n"
+        f"\n## [{today}] update | homelab-infrastructure (pulse sync)\n"
         f"- {'; '.join(parts)}\n"
-        f"- homepage source: https://github.com/Skulldorom/homepage\n"
+        f"- pulse source: {config.PULSE_API_URL}\n"
     )
 
     log_file = Path(log_path)

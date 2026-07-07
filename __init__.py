@@ -1,8 +1,8 @@
 """update-infrastructure plugin -- update_infrastructure / update_infrastructure_review tools + /update-infrastructure command.
 
-Syncs the homelab wiki from the homepage dashboard config.
-Homepage is the authority for services it knows about.
-Wiki content never in homepage is preserved untouched.
+Syncs the homelab wiki from the Pulse monitoring API.
+Pulse is the single source of truth for infrastructure data.
+Wiki content not managed by this plugin is preserved untouched.
 
 Provides three interfaces:
 - update_infrastructure tool (infra toolset) -- returns review prompt by default, JSON with "json"/"tool"
@@ -245,7 +245,7 @@ def _render_cross_ref_summary(lines: list[str], cross_ref: dict) -> None:
     missing = cross_ref.get("missing_entity_pages", [])
     ip_drift = cross_ref.get("ip_drift", [])
     orphaned = cross_ref.get("orphaned_entity_pages", [])
-    unmapped = cross_ref.get("unmapped_servers", [])
+    unmapped = cross_ref.get("unmapped_hosts", [])
 
     issues = bool(missing or ip_drift or unmapped)
     if not issues and not orphaned:
@@ -256,8 +256,8 @@ def _render_cross_ref_summary(lines: list[str], cross_ref: dict) -> None:
     if missing:
         lines.append(f"\n\u26a0\ufe0f {len(missing)} service(s) without entity pages:")
         for svc in missing:
-            href = svc.get("href", "")
-            h = f" ({href})" if href else ""
+            ip = svc.get("ip", "")
+            h = f" ({ip})" if ip else ""
             lines.append(f"   \u2022 {svc['name']}{h}")
             lines.append(f'     \u2192 /update-infrastructure create "{svc["name"]}"')
 
@@ -266,7 +266,7 @@ def _render_cross_ref_summary(lines: list[str], cross_ref: dict) -> None:
         for item in ip_drift:
             lines.append(
                 f"   \u2022 {item['name']}:"
-                f" siteMonitor={item['site_monitor']},"
+                f" pulse_ip={item['pulse_ip']},"
                 f" entity ip={item['entity_ip']} (MISMATCH)"
             )
             lines.append(f'     \u2192 /update-infrastructure fix-ip "{item["name"]}"')
@@ -274,11 +274,11 @@ def _render_cross_ref_summary(lines: list[str], cross_ref: dict) -> None:
             lines.append("     \u2192 /update-infrastructure fix all")
 
     if unmapped:
-        lines.append(f"\n\u26a0\ufe0f Unmapped server fields:")
+        lines.append(f"\n\u26a0\ufe0f Unmapped host fields:")
         for item in unmapped:
             sug = item.get("suggestions", [])
             sug_str = f" -- did you mean {', '.join(sug)}?" if sug else ""
-            lines.append(f"   \u2022 {item['name']}: server={item['server']}{sug_str}")
+            lines.append(f"   \u2022 {item['name']}: host={item['host']}{sug_str}")
 
     if orphaned:
         lines.append(f"\n\u2139\ufe0f {len(orphaned)} orphaned entity page(s):")
@@ -293,7 +293,7 @@ def _render_status(data: dict) -> str:
     source = data.get("source", {})
     lines = [
         "\U0001f50d Infrastructure status check",
-        f"   Services in homepage: {source.get('services', 0)}",
+        f"   Services in Pulse: {source.get('services', 0)}",
         f"   Subdomains: {source.get('subdomains', 0)}",
     ]
     _render_cross_ref_summary(lines, cross_ref)
@@ -338,16 +338,16 @@ def _render_check(result: dict) -> str:
     name = result.get("name", "?")
     lines: list[str] = [
         f"\U0001f50d Service check: {name}",
-        f"   In homepage: {result.get('in_homepage', False)}",
+        f"   In Pulse: {result.get('in_pulse', False)}",
     ]
-    if result.get("homepage_group"):
-        lines.append(f"   Group: {result['homepage_group']}")
-    if result.get("homepage_href"):
-        lines.append(f"   Href: {result['homepage_href']}")
-    if result.get("homepage_site_monitor"):
-        lines.append(f"   Site monitor: {result['homepage_site_monitor']}")
-    if result.get("homepage_server"):
-        lines.append(f"   Server: {result['homepage_server']}")
+    if result.get("pulse_group"):
+        lines.append(f"   Group: {result['pulse_group']}")
+    if result.get("pulse_ip"):
+        lines.append(f"   Pulse IP: {result['pulse_ip']}")
+    if result.get("pulse_status"):
+        lines.append(f"   Status: {result['pulse_status']}")
+    if result.get("pulse_host"):
+        lines.append(f"   Host: {result['pulse_host']}")
     lines.append(f"   Entity page: {result.get('has_entity_page', False)}")
     if result.get("entity_page"):
         lines.append(f"   Entity file: {result['entity_page']}")
@@ -357,7 +357,7 @@ def _render_check(result: dict) -> str:
     if drift:
         lines.append(
             f"\n\u26a0\ufe0f IP drift:"
-            f" siteMonitor={drift['site_monitor']},"
+            f" pulse_ip={drift['pulse_ip']},"
             f" entity={drift['entity_ip']}"
         )
         lines.append(f'   \u2192 /update-infrastructure fix-ip "{name}"')
@@ -397,8 +397,8 @@ def _render_help(result: dict) -> str:
     lines = [
         "",
         "┌─────────────────────────────────────────────────────────────┐",
-        "│               /update-infrastructure  v2.3.2                │",
-        "│  Sync homelab wiki from homepage dashboard config            │",
+        "│               /update-infrastructure  v3.0.0                │",
+        "│  Sync homelab wiki from Pulse monitoring API                 │",
         "└─────────────────────────────────────────────────────────────┘",
         "",
         "🔗 PROJECT",
@@ -407,7 +407,7 @@ def _render_help(result: dict) -> str:
         "🔄 COMMANDS (aliases: /update-infra, /sync-infra)",
         "",
         "   /update-infrastructure",
-        "      Full sync: fetch homepage → cross-ref → update wiki",
+        "      Full sync: fetch Pulse API → cross-ref → update wiki",
         "      → hands off review prompt for agent follow-up",
         "",
         "   /update-infrastructure status",
@@ -417,7 +417,7 @@ def _render_help(result: dict) -> str:
         "      Scaffold an entities/<slug>.md page with sensible defaults",
         "",
         "   /update-infrastructure check \"Service Name\"",
-        "      Deep-check one service: homepage + entity page + IP drift",
+        "      Deep-check one service: Pulse data + entity page + IP drift",
         "",
         "   /update-infrastructure fix-ip \"Service Name\" [--dry-run]",
         "      Repair IP drift for one service (--dry-run to preview)",
@@ -426,7 +426,7 @@ def _render_help(result: dict) -> str:
         "      Repair all IP drift in one go",
         "",
         "   /update-infrastructure cleanup",
-        "      List orphaned entity pages (not in homepage)",
+        "      List orphaned entity pages (not in Pulse)",
         "",
         "   /update-infrastructure json    (or 'tool')",
         "      Raw JSON output — escape hatch for scripting",
@@ -436,18 +436,20 @@ def _render_help(result: dict) -> str:
         "",
         "⚙️  ENVIRONMENT",
         "",
-        f"   WIKI_PATH          Wiki root (default: {wiki_path})",
-        "   SUBDOMAIN_PATTERNS  Comma-separated regex list for subdomain extraction",
-        "   NOISE_FILTER_NAMES  Extra generic names to suppress in cross-ref",
-        "   SERVER_ALIASES      Short-name→entity mappings (key=val|val,...)",
-        "   SUPPRESS_ENTITY_CHECK  Service names to skip in entity checks",
+        f"   WIKI_PATH            Wiki root (default: {wiki_path})",
+        "   PULSE_API_URL         Pulse API base URL (default: http://192.168.0.20:7655)",
+        "   PULSE_API_TOKEN       Pulse API token (monitoring:read scope required)",
+        "   PULSE_RESOURCE_TYPES  Resource types to fetch (default: container,vm,node,docker-container)",
+        "   NOISE_FILTER_NAMES    Extra generic names to suppress in cross-ref",
+        "   SERVER_ALIASES        Short-name→entity mappings (key=val|val,...)",
+        "   SUPPRESS_ENTITY_CHECK Service names to skip in entity checks",
         "",
         "📂 SYNC RULES",
         "",
-        "   • Added in homepage    → added to wiki",
-        "   • Removed from homepage → removed from wiki",
-        "   • Changed in homepage  → updated in wiki",
-        "   • Only in wiki          → preserved untouched",
+        "   • Added in Pulse    → added to wiki",
+        "   • Removed from Pulse → removed from wiki",
+        "   • Changed in Pulse  → updated in wiki",
+        "   • Only in wiki       → preserved untouched",
         "",
         "   Auto sections wrapped in <!-- HOMEPAGE_AUTO: --> markers.",
         "   Everything outside those markers is your manual territory.",
@@ -525,7 +527,7 @@ def _build_review_prompt(data: dict) -> str:
         missing = cross_ref.get("missing_entity_pages", [])
         ip_drift = cross_ref.get("ip_drift", [])
         orphaned = cross_ref.get("orphaned_entity_pages", [])
-        unmapped = cross_ref.get("unmapped_servers", [])
+        unmapped = cross_ref.get("unmapped_hosts", [])
 
         if not missing and not ip_drift and not unmapped and not orphaned:
             lines.append("✅ All clear — no issues found")
@@ -536,8 +538,8 @@ def _build_review_prompt(data: dict) -> str:
                     f"⚠️ {len(missing)} service(s) without entity pages:"
                 )
                 for svc in missing:
-                    href = svc.get("href", "")
-                    h = f" ({href})" if href else ""
+                    ip = svc.get("ip", "")
+                    h = f" ({ip})" if ip else ""
                     lines.append(f"  • {svc['name']}{h}")
                     lines.append(
                         f'    → /update-infrastructure create "{svc["name"]}"'
@@ -549,7 +551,7 @@ def _build_review_prompt(data: dict) -> str:
                 for item in ip_drift:
                     lines.append(
                         f"  • {item['name']}:"
-                        f" siteMonitor={item['site_monitor']},"
+                        f" pulse_ip={item['pulse_ip']},"
                         f" entity ip={item['entity_ip']} (MISMATCH)"
                     )
                     lines.append(
@@ -562,7 +564,7 @@ def _build_review_prompt(data: dict) -> str:
 
             if unmapped:
                 lines.append("")
-                lines.append("⚠️ Unmapped server fields:")
+                lines.append("⚠️ Unmapped host fields:")
                 for item in unmapped:
                     sug = item.get("suggestions", [])
                     sug_str = (
@@ -570,7 +572,7 @@ def _build_review_prompt(data: dict) -> str:
                     )
                     lines.append(
                         f"  • {item['name']}:"
-                        f" server={item['server']}{sug_str}"
+                        f" host={item['host']}{sug_str}"
                     )
 
             if orphaned:
@@ -637,10 +639,10 @@ def _build_review_prompt(data: dict) -> str:
                 '- Ask: "Orphaned entity pages found —'
                 ' want me to clean them up?"'
             )
-        if cross_ref.get("unmapped_servers"):
+        if cross_ref.get("unmapped_hosts"):
             has_issues = True
             lines.append(
-                '- Ask: "Some server fields don\'t match known machines'
+                '- Ask: "Some host fields don\'t match known machines'
                 ' — need help mapping them?"'
             )
 
@@ -674,8 +676,7 @@ def _handle_update_tool(raw_args: str = "") -> str:
         # --- status intent: cross-ref only, no wiki update ---
         if intent == "status":
             entity_pages = parser.load_entity_pages(wiki_root)
-            config_dir = parser.fetch_repo()
-            data = parser.parse_all(config_dir)
+            data = parser.parse_all()
             cross_ref = parser.cross_reference(data, entity_pages)
             elapsed = round(time.monotonic() - t_start, 2)
             return json.dumps({
@@ -700,8 +701,7 @@ def _handle_update_tool(raw_args: str = "") -> str:
             })
 
         # --- Full sync pipeline ---
-        config_dir = parser.fetch_repo()
-        data = parser.parse_all(config_dir)
+        data = parser.parse_all()
 
         svc_count = len(data.get("services", []))
         sub_count = len(data.get("subdomains", []))
@@ -726,10 +726,11 @@ def _handle_update_tool(raw_args: str = "") -> str:
             name = intent_params.get("name", "")
             services = data.get("services", [])
             svc = next((s for s in services if s["name"].lower() == name.lower()), None)
-            href = (svc or {}).get("href", "")
-            site_monitor = (svc or {}).get("site_monitor", "")
-            server = (svc or {}).get("server", "")
-            r = parser.scaffold_entity_page(wiki_root, name, href, site_monitor, server)
+            ip = (svc or {}).get("ip", "")
+            host = (svc or {}).get("host", "")
+            os_name = (svc or {}).get("os", "")
+            vmid = (svc or {}).get("vmid", "")
+            r = parser.scaffold_entity_page(wiki_root, name, ip, host, os_name, vmid)
             intent_result = {"created": r["created"], "path": r["path"]}
             if not r["created"]:
                 intent_result["reason"] = r.get("reason", "")
@@ -739,9 +740,9 @@ def _handle_update_tool(raw_args: str = "") -> str:
             fixed = []
             errors = []
             for item in ip_drift:
-                new_ip = parser._extract_ip_from_url(item["site_monitor"])
+                new_ip = item.get("pulse_ip", "")
                 if not new_ip:
-                    errors.append({"name": item["name"], "reason": "could not extract IP"})
+                    errors.append({"name": item["name"], "reason": "no Pulse IP available"})
                     continue
                 r = parser.fix_entity_ip(wiki_root, item["name"], new_ip)
                 if r["fixed"]:
@@ -758,12 +759,12 @@ def _handle_update_tool(raw_args: str = "") -> str:
             if item is None:
                 intent_result = {"name": name, "fixed": False, "reason": f"no IP drift detected for {name}"}
             else:
-                new_ip = parser._extract_ip_from_url(item["site_monitor"])
+                new_ip = item.get("pulse_ip", "")
                 if not new_ip:
                     intent_result = {
                         "name": name,
                         "fixed": False,
-                        "reason": f"could not extract IP from {item['site_monitor']}",
+                        "reason": "no Pulse IP available for this service",
                     }
                 else:
                     r = parser.fix_entity_ip(wiki_root, name, new_ip, dry_run=dry_run)
@@ -785,16 +786,16 @@ def _handle_update_tool(raw_args: str = "") -> str:
             )
             intent_result = {
                 "name": name,
-                "in_homepage": svc is not None,
-                "homepage_group": svc.get("group") if svc else None,
-                "homepage_href": svc.get("href") if svc else None,
-                "homepage_site_monitor": svc.get("site_monitor") if svc else None,
-                "homepage_server": svc.get("server") if svc else None,
+                "in_pulse": svc is not None,
+                "pulse_group": svc.get("group") if svc else None,
+                "pulse_ip": svc.get("ip") if svc else None,
+                "pulse_status": svc.get("status") if svc else None,
+                "pulse_host": svc.get("host") if svc else None,
                 "has_entity_page": entity is not None,
                 "entity_page": f"entities/{slug}.md" if entity else None,
                 "entity_ip": entity.get("ip") if entity else None,
                 "ip_drift": {
-                    "site_monitor": drift_item["site_monitor"],
+                    "pulse_ip": drift_item["pulse_ip"],
                     "entity_ip": drift_item["entity_ip"],
                 } if drift_item else None,
             }
@@ -867,7 +868,7 @@ def _handle_update_and_review(raw_args: str = "") -> str:
 
 def register(ctx):
     """Register the /update-infrastructure slash command and update_infrastructure tool."""
-    description = "Sync homelab wiki from homepage dashboard config"
+    description = "Sync homelab wiki from Pulse monitoring API"
 
     def _handle_update_with_inject(raw_args: str) -> str:
         """Slash command wrapper that hands default sync output to the agent loop."""
@@ -907,11 +908,12 @@ def register(ctx):
         schema={
             "name": "update_infrastructure",
             "description": (
-                "Sync homelab wiki from homepage dashboard config and return a "
-                "structured review prompt by default. Fetches homepage services, "
-                "parses entity pages, cross-references, detects IP drift, and "
-                "updates the wiki. Pass 'json' or 'tool' as raw_args for raw "
-                "JSON output (escape hatch). Sub-commands: "
+                "Sync homelab wiki from Pulse monitoring API and return a "
+                "structured review prompt by default. Fetches live infrastructure "
+                "data from Pulse (IPs, OS, node assignments, status), parses "
+                "entity pages, cross-references, detects IP drift, and updates "
+                "the wiki. Pass 'json' or 'tool' as raw_args for raw JSON output "
+                "(escape hatch). Sub-commands: "
                 '"status", "check <name>", "create <name>", '
                 '"fix-ip <name>", "fix all", "cleanup".'
             ),
@@ -932,7 +934,7 @@ def register(ctx):
             },
         },
         handler=_handle_update_tool,
-        description="Sync homelab wiki from homepage — returns review prompt by default",
+        description="Sync homelab wiki from Pulse API — returns review prompt by default",
     )
 
     # ── Review tool (always returns a review prompt) ──
@@ -942,8 +944,8 @@ def register(ctx):
         schema={
             "name": "update_infrastructure_review",
             "description": (
-                "Run the infrastructure sync and return a structured review "
-                "prompt. The prompt summarises changes, cross-reference issues, "
+                "Run the infrastructure sync from Pulse API and return a structured "
+                "review prompt. The prompt summarises changes, cross-reference issues, "
                 "IP drift, orphaned pages, topology, and instructs the agent "
                 "to follow up with the user via clarify(). Always returns a "
                 "readable prompt — never raw JSON."

@@ -5,18 +5,23 @@ Environment variables take precedence over the defaults defined here at runtime
 (see the individual ``_get_*`` helpers in ``parser.py``).
 """
 
-import tempfile
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
-# Homepage source repo
+# Pulse API source
 # ---------------------------------------------------------------------------
 
-#: Git URL of the homepage dashboard config repository.
-HOMEPAGE_REPO: str = "https://github.com/Skulldorom/homepage"
+#: Base URL of the Pulse monitoring API.
+#: Override at runtime via the ``PULSE_API_URL`` environment variable.
+PULSE_API_URL: str = "http://192.168.0.20:7655"
 
-#: Local directory used to cache the cloned homepage repo between runs.
-REPO_CACHE: Path = Path(tempfile.gettempdir()) / "hermes-homepage-sync"
+#: Name of the environment variable that holds the Pulse API token.
+#: The token must have ``monitoring:read``, ``agent:read``, and ``settings:read`` scopes.
+PULSE_API_TOKEN_ENV_VAR: str = "PULSE_API_TOKEN"
+
+#: Resource types to fetch from Pulse when building the service list.
+#: Comma-separated string matching Pulse ``/api/resources?type=`` parameter.
+PULSE_RESOURCE_TYPES: str = "container,vm,node,docker-container"
 
 # ---------------------------------------------------------------------------
 # Wiki paths

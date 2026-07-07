@@ -1,24 +1,21 @@
-"""Parse homepage YAML configs into structured homelab data."""
+"""Parse Pulse API data and wiki entity pages into structured homelab data.
+
+Pulse (rcourtman/Pulse) is the single source of truth for infrastructure data:
+IPs, OS names, node assignments, CT/VM IDs, and real-time status.
+"""
 
 import os
 import re
-import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
 
 try:
-    from . import config
+    from . import config, pulse_client
 except ImportError:  # pragma: no cover - supports direct module loading in tests
     import config  # type: ignore
-
-HOMEPAGE_REPO = config.HOMEPAGE_REPO
-REPO_CACHE = config.REPO_CACHE
-
-# Default subdomain patterns — each pattern must use group(1) to capture the subdomain label.
-# Override by setting SUBDOMAIN_PATTERNS to a comma-separated list of regex strings.
-_DEFAULT_SUBDOMAIN_PATTERNS = config.DEFAULT_SUBDOMAIN_PATTERNS
+    import pulse_client  # type: ignore
 
 # Default set of generic infrastructure/platform names that are NOT specific hosts.
 # Services whose slugified name matches one of these are filtered from "missing entity pages"
@@ -29,126 +26,6 @@ _DEFAULT_GENERIC_INFRA_NAMES: frozenset[str] = config.DEFAULT_GENERIC_INFRA_NAME
 # Frontmatter ``type`` values that indicate personal devices / people (not services).
 # Entity pages with these types are silently excluded from orphaned-page reports.
 _PERSONAL_DEVICE_TYPES: frozenset[str] = config.PERSONAL_DEVICE_TYPES
-
-
-def _parse_yaml(path: Path) -> dict:
-    """Parse a Homepage YAML config file, stripping template comments."""
-    text = path.read_text()
-    cleaned = []
-    for line in text.split("\n"):
-        stripped = line.strip()
-        if stripped.startswith("#"):
-            continue
-        cleaned.append(line)
-    raw = yaml.safe_load("\n".join(cleaned))
-    return raw if raw else {}
-
-
-def fetch_repo() -> Path:
-    """Clone or pull the homepage repo. Returns path to the config dir."""
-    if REPO_CACHE.exists() and (REPO_CACHE / ".git").exists():
-        subprocess.run(
-            ["git", "fetch", "--depth", "1", "origin", "main"],
-            cwd=REPO_CACHE,
-            capture_output=True,
-            timeout=30,
-        )
-        subprocess.run(
-            ["git", "reset", "--hard", "origin/main"],
-            cwd=REPO_CACHE,
-            capture_output=True,
-            timeout=10,
-        )
-    else:
-        REPO_CACHE.mkdir(parents=True, exist_ok=True)
-        subprocess.run(
-            ["git", "clone", "--depth", "1", HOMEPAGE_REPO, str(REPO_CACHE)],
-            capture_output=True,
-            timeout=60,
-        )
-    return REPO_CACHE / "config"
-
-
-def _walk_services(raw, group_name: str = "", subgroup_name: str = "") -> list[dict]:
-    """Recursively walk the homepage YAML tree to find leaf service entries."""
-    result = []
-
-    if isinstance(raw, list):
-        for item in raw:
-            if isinstance(item, dict):
-                for key, val in item.items():
-                    if isinstance(val, (dict, list)):
-                        # Could be a group, subgroup, or service
-                        if isinstance(val, dict) and "href" in val:
-                            # Leaf service: {name: {href: ..., icon: ...}}
-                            widget = val.get("widget", {})
-                            widget_type = widget.get("type") if isinstance(widget, dict) else None
-                            result.append({
-                                "name": key,
-                                "group": group_name or "Ungrouped",
-                                "subgroup": subgroup_name,
-                                "href": val.get("href"),
-                                "site_monitor": val.get("siteMonitor"),
-                                "icon": val.get("icon"),
-                                "description": val.get("description"),
-                                "container": val.get("container"),
-                                "server": val.get("server"),
-                                "widget_type": widget_type,
-                            })
-                        else:
-                            # Intermediate level — recurse
-                            if group_name:
-                                result.extend(_walk_services(val, group_name, key))
-                            else:
-                                result.extend(_walk_services(val, key, subgroup_name))
-
-    return result
-
-
-def extract_services(config_dir: Path) -> list[dict]:
-    """Parse services.yaml into a flat list of service dicts."""
-    services_raw = _parse_yaml(config_dir / "services.yaml")
-    if not services_raw:
-        return []
-    return _walk_services(services_raw)
-
-
-def extract_bookmarks(config_dir: Path) -> list[dict]:
-    """Parse bookmarks.yaml for additional URL entries."""
-    bookmarks_raw = _parse_yaml(config_dir / "bookmarks.yaml")
-    if not bookmarks_raw:
-        return []
-    return _walk_services(bookmarks_raw)
-
-
-def _get_subdomain_patterns() -> list[str]:
-    """Return subdomain regex patterns from SUBDOMAIN_PATTERNS env var or defaults.
-
-    Each pattern must capture the subdomain label in group 1.
-    The env var accepts a comma-separated list of raw regex strings, e.g.:
-        SUBDOMAIN_PATTERNS=https?://([a-z0-9-]+)\\.example\\.com,https?://([a-z0-9-]+)\\.other\\.net
-    """
-    env_val = os.environ.get("SUBDOMAIN_PATTERNS", "").strip()
-    if env_val:
-        return [p.strip() for p in env_val.split(",") if p.strip()]
-    return _DEFAULT_SUBDOMAIN_PATTERNS
-
-
-def extract_subdomain(service: dict) -> str | None:
-    """Extract subdomain from href using configurable patterns.
-
-    Returns the subdomain label (group 1 of the first matching pattern), or None.
-    """
-    href = service.get("href", "")
-    if not href:
-        return None
-
-    for pattern in _get_subdomain_patterns():
-        match = re.search(pattern, href)
-        if match:
-            return match.group(1)
-
-    return None
 
 
 def _slugify(name: str) -> str:
@@ -314,10 +191,10 @@ def load_entity_pages(wiki_root: Path) -> dict | None:
 
 
 def cross_reference(data: dict, entity_pages: dict | None) -> dict:
-    """Cross-reference homepage services against wiki entity pages.
+    """Cross-reference Pulse services against wiki entity pages.
 
     Args:
-        data: Structured homepage data from :func:`parse_all`.
+        data: Structured data from :func:`parse_all` (Pulse API).
         entity_pages: Dict returned by :func:`load_entity_pages`, or ``None``
             when the entities directory was not found.
 
@@ -329,12 +206,13 @@ def cross_reference(data: dict, entity_pages: dict | None) -> dict:
         ``missing_entity_pages`` (list[dict])
             Services with no matching entity page (generic infra names filtered out).
         ``ip_drift`` (list[dict])
-            Services where the siteMonitor IP differs from the entity ``ip``.
+            Services where the Pulse live IP differs from the entity ``ip`` field.
+            Each item has keys ``name``, ``pulse_ip``, ``entity_ip``.
         ``orphaned_entity_pages`` (list[str])
-            Entity page slugs whose name does not match any homepage service
+            Entity page slugs whose name does not match any Pulse resource
             (personal-device / person pages filtered out).
-        ``unmapped_servers`` (list[dict])
-            Services whose ``server:`` field does not map to any entity, with
+        ``unmapped_hosts`` (list[dict])
+            Services whose ``host:`` field does not map to any entity, with
             fuzzy ``suggestions`` for likely matches.
     """
     if entity_pages is None:
@@ -347,7 +225,7 @@ def cross_reference(data: dict, entity_pages: dict | None) -> dict:
     # Build a set of service slugs for fast lookup
     service_slugs = {_slugify(svc["name"]) for svc in services}
 
-    # Parse server→entity aliases and build a reverse lookup
+    # Parse host→entity aliases and build a reverse lookup
     server_aliases = _parse_server_aliases()
     # alias_targets: set of all entity slugs referenced by any alias
     alias_targets: set[str] = set()
@@ -372,7 +250,7 @@ def cross_reference(data: dict, entity_pages: dict | None) -> dict:
 
     missing_entity_pages: list[dict] = []
     ip_drift: list[dict] = []
-    unmapped_servers: list[dict] = []
+    unmapped_hosts: list[dict] = []
 
     for svc in services:
         slug = _slugify(svc["name"])
@@ -384,48 +262,47 @@ def cross_reference(data: dict, entity_pages: dict | None) -> dict:
             if slug not in generic_names:
                 # Skip services explicitly suppressed via SUPPRESS_ENTITY_CHECK
                 if svc["name"].lower() not in suppressed_names:
-                    # Skip services whose server field maps to a known entity
+                    # Skip services whose host field maps to a known entity
                     # (the service is documented via its parent's entity page)
-                    server_val = svc.get("server")
-                    server_is_known = False
-                    if server_val:
-                        server_slug = _slugify(str(server_val))
+                    host_val = svc.get("host")
+                    host_is_known = False
+                    if host_val:
+                        host_slug = _slugify(str(host_val))
                         # Check direct match + alias resolution
-                        if server_slug in known_hosts:
-                            server_is_known = True
+                        if host_slug in known_hosts:
+                            host_is_known = True
                         else:
-                            aliases = server_aliases.get(server_slug, [])
+                            aliases = server_aliases.get(host_slug, [])
                             if any(a in known_hosts for a in aliases):
-                                server_is_known = True
-                    if not server_is_known:
+                                host_is_known = True
+                    if not host_is_known:
                         missing_entity_pages.append(
-                            {"name": svc["name"], "href": svc.get("href", "")}
+                            {"name": svc["name"], "ip": svc.get("ip", "")}
                         )
         else:
-            # IP drift: compare siteMonitor URL IP against entity page ip field
+            # IP drift: compare Pulse live IP against entity page ip field
             entity_ip = entity.get("ip")
-            site_monitor = svc.get("site_monitor") or ""
-            if entity_ip and site_monitor:
-                ip_match = re.search(r"https?://(\d{1,3}(?:\.\d{1,3}){3})", site_monitor)
-                if ip_match and ip_match.group(1) != str(entity_ip):
+            pulse_ip = svc.get("ip") or ""
+            if entity_ip and pulse_ip:
+                if str(pulse_ip) != str(entity_ip):
                     ip_drift.append({
                         "name": svc["name"],
-                        "site_monitor": site_monitor,
+                        "pulse_ip": pulse_ip,
                         "entity_ip": str(entity_ip),
                     })
 
-        # Unmapped server field — resolve aliases before flagging
-        server = svc.get("server")
-        if server:
-            server_slug = _slugify(str(server))
-            if server_slug not in known_hosts:
-                # Check if server resolves via alias
-                aliases = server_aliases.get(server_slug, [])
+        # Unmapped host field — resolve aliases before flagging
+        host = svc.get("host")
+        if host:
+            host_slug = _slugify(str(host))
+            if host_slug not in known_hosts:
+                # Check if host resolves via alias
+                aliases = server_aliases.get(host_slug, [])
                 if not any(a in known_hosts for a in aliases):
-                    suggestions = _suggest_server_match(server, entity_pages, alias_targets)
-                    unmapped_servers.append({
+                    suggestions = _suggest_server_match(host, entity_pages, alias_targets)
+                    unmapped_hosts.append({
                         "name": svc["name"],
-                        "server": server,
+                        "host": host,
                         "suggestions": suggestions,
                     })
 
@@ -442,25 +319,27 @@ def cross_reference(data: dict, entity_pages: dict | None) -> dict:
         "missing_entity_pages": missing_entity_pages,
         "ip_drift": ip_drift,
         "orphaned_entity_pages": sorted(orphaned),
-        "unmapped_servers": unmapped_servers,
+        "unmapped_hosts": unmapped_hosts,
     }
 
 
 def scaffold_entity_page(
     wiki_root: Path,
     name: str,
-    href: str = "",
-    site_monitor: str = "",
-    server: str = "",
+    ip: str = "",
+    host: str = "",
+    os: str = "",
+    vmid: str | int = "",
 ) -> dict:
     """Scaffold a new entity page for a service that has no existing page.
 
     Args:
         wiki_root: Root of the wiki directory.
         name: Human-readable service name (e.g. "Bento PDF").
-        href: Service URL (used to extract IP if *site_monitor* has none).
-        site_monitor: siteMonitor URL (used to extract IP).
-        server: server field value from homepage (used to populate ``host``).
+        ip: IP address from Pulse live data.
+        host: Proxmox node name or Docker host name from Pulse.
+        os: OS name from Pulse (e.g. "Debian GNU/Linux 12").
+        vmid: CT/VM ID from Pulse.
 
     Returns:
         A dict with keys:
@@ -483,7 +362,6 @@ def scaffold_entity_page(
         return {"created": False, "path": str(page_path), "reason": "already exists"}
 
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    ip = _extract_ip_from_url(site_monitor) or _extract_ip_from_url(href)
 
     fm_lines = [
         "---",
@@ -495,8 +373,12 @@ def scaffold_entity_page(
     ]
     if ip:
         fm_lines.append(f"ip: {ip}")
-    if server:
-        fm_lines.append(f"host: {_slugify(str(server))}")
+    if host:
+        fm_lines.append(f"host: {_slugify(str(host))}")
+    if os:
+        fm_lines.append(f"os: {os}")
+    if vmid:
+        fm_lines.append(f"vmid: {vmid}")
     fm_lines += [
         "---",
         "",
@@ -573,30 +455,27 @@ def fix_entity_ip(
     return {"fixed": True, "dry_run": False, "path": str(page_path)}
 
 
-def parse_all(config_dir: Path) -> dict:
-    """Parse all homepage configs and return structured homelab data."""
-    services = extract_services(config_dir)
-    bookmarks = extract_bookmarks(config_dir)
+def parse_all() -> dict:
+    """Fetch data from the Pulse API and return structured homelab data.
 
-    # Merge all entries for subdomain table
-    all_entries = services + bookmarks
+    Uses ``PULSE_RESOURCE_TYPES`` (env var or config default) to filter
+    resource types returned by Pulse.
 
-    # Build subdomain table
-    subdomains = []
-    for entry in all_entries:
-        subdomain = extract_subdomain(entry)
-        if subdomain:
-            subdomains.append({
-                "subdomain": subdomain,
-                "href": entry["href"],
-                "name": entry["name"],
-                "site_monitor": entry.get("site_monitor"),
-                "description": entry.get("description"),
-                "group": entry["group"],
-            })
+    Returns:
+        A dict with keys:
 
+        ``services`` (list[dict])
+            Flat list of service dicts built from Pulse resources.
+            Each dict has: ``name``, ``group``, ``ip``, ``host``, ``vmid``,
+            ``os``, ``status``, ``type``, ``parent_id``, ``tags``.
+        ``subdomains`` (list[dict])
+            Empty list — subdomains are no longer auto-extracted from URLs.
+            Store ``urls:`` in entity page frontmatter for URL tracking.
+    """
+    resource_types = os.environ.get("PULSE_RESOURCE_TYPES", config.PULSE_RESOURCE_TYPES)
+    resources = pulse_client.fetch_resources(type_filter=resource_types)
+    services = pulse_client.build_service_list(resources)
     return {
         "services": services,
-        "bookmarks": bookmarks,
-        "subdomains": subdomains,
+        "subdomains": [],
     }
