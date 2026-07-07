@@ -22,6 +22,7 @@ class _FakeCtx:
 
     def inject_message(self, message):
         self.injected.append(message)
+        return True
 
 
 def _mk_none_payload(review_prompt):
@@ -93,3 +94,59 @@ def test_aliases_use_same_handoff_behavior():
     assert result_a == "🔄 Sync complete. Handing off results to agent for review..."
     assert result_b == "🔄 Sync complete. Handing off results to agent for review..."
     assert ctx.injected == [review_prompt, review_prompt]
+
+
+class _FakeGatewayCtx:
+    """Fake PluginContext that simulates gateway mode: inject_message is
+    callable but always returns False (no CLI ref available)."""
+
+    def __init__(self):
+        self.commands = {}
+        self.tools = {}
+        self.injected = []
+
+    def register_tool(self, name, **kwargs):
+        self.tools[name] = kwargs["handler"]
+
+    def register_command(self, name, handler, description):
+        self.commands[name] = handler
+
+    def inject_message(self, message):
+        self.injected.append(message)
+        return False
+
+
+def test_gateway_mode_falls_back_to_review_prompt():
+    """When inject_message returns False (gateway/WebUI), the handler
+    returns the review prompt directly instead of the dead placeholder."""
+    ctx = _FakeGatewayCtx()
+    register(ctx)
+    handler = ctx.commands["update-infrastructure"]
+
+    review_prompt = "## Infrastructure Sync Review\n- Ask: \"...\""
+    payload = _mk_none_payload(review_prompt)
+    with patch("update_infrastructure._handle_update_tool", return_value=payload):
+        result = handler("")
+
+    # Gateway mode: inject_message returned False, so we get the review
+    # prompt as the command response instead of the dead placeholder.
+    assert result == review_prompt
+    # inject_message was still called (it's callable), just returned False.
+    assert ctx.injected == [review_prompt]
+
+
+def test_no_inject_message_attr_falls_back_to_review_prompt():
+    """When ctx has no inject_message attribute at all, return the review
+    prompt directly (same behavior as gateway mode)."""
+    ctx = _FakeCtx()
+    # Remove inject_message entirely to simulate a PluginContext without it.
+    type(ctx).inject_message = None
+    register(ctx)
+    handler = ctx.commands["update-infrastructure"]
+
+    review_prompt = "## Infrastructure Sync Review\n- Ask: \"...\""
+    payload = _mk_none_payload(review_prompt)
+    with patch("update_infrastructure._handle_update_tool", return_value=payload):
+        result = handler("")
+
+    assert result == review_prompt
