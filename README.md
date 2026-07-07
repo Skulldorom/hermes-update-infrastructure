@@ -274,10 +274,17 @@ shell environment:
 ## Pulse Setup
 
 1. Install [Pulse](https://pulse.zingerlabs.com/) in your homelab.
-2. In the Pulse web UI, create an API token with the following scopes:
-   - `monitoring:read`
-   - `agent:read`
-   - `settings:read`
+2. In the Pulse web UI, create an API token. Select **Custom scopes** and
+   tick exactly these three checkboxes (all read-only):
+
+   | Pulse scope (code) | UI checkbox |
+   |---|---|
+   | `monitoring:read` | **Monitoring & alerts (read)** |
+   | `agent:read` | **Agent reporting** |
+   | `settings:read` | **Settings (read)** |
+
+   > The plugin only calls `GET` endpoints — no `write` or lifecycle
+   > management scopes are needed.
 3. Add the token to your `.env` file:
    ```
    PULSE_API_TOKEN=your-token-here
