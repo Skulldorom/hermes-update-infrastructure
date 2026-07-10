@@ -464,7 +464,7 @@ def _render_help(result: dict) -> str:
         "   • Removed from Pulse → removed from generated data file",
         "   • Changed in Pulse  → updated in generated data file",
         "",
-        "   Auto-generated data is written to generated/infrastructure-data.md.",
+        "   Auto-generated data is written to raw/sources/pulse-infrastructure-data.md.",
         "   The Hermes agent reads that file and updates guides/homelab-infrastructure.md.",
         "   Everything in the wiki page is your manual territory.",
         "",
