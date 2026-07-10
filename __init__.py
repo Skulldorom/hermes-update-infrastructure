@@ -540,6 +540,16 @@ def _build_review_prompt(data: dict) -> str:
         "4. Append a concise **Status** paragraph at the end"
         ' (e.g. "✅ 0 alerts, 2 nodes online, 14 containers running")'
     )
+    lines.append("")
+    lines.append(
+        "New syntheses or comparisons discovered during review can be filed"
+        " under `concepts/`, `comparisons/`, or `queries/`."
+    )
+    lines.append("")
+    lines.append(
+        "After updating any wiki files, reindex the search index:"
+        " `python3 ~/.hermes/scripts/wiki-search.py reindex`"
+    )
 
     # ── Cross-reference report ──
     lines.append("")
