@@ -1,7 +1,7 @@
 """Write auto-generated infrastructure data to a dedicated file.
 
 Key design: auto-generated data is written to a separate file
-(``<wiki_root>/generated/infrastructure-data.md``).  The human-readable
+(``<wiki_root>/raw/sources/pulse-infrastructure-data.md``).  The human-readable
 wiki page (``guides/homelab-infrastructure.md``) is never touched by this
 module — the Hermes agent reads the generated file and updates the wiki
 page surgically.
@@ -232,7 +232,7 @@ def write_generated_file(output_path: str, data: dict, dry_run: bool = False,
     lines = [
         "---",
         f"generated_at: {now}",
-        f"source: {config.PULSE_API_URL}",
+        f"source: {config.get_pulse_url()}",
         f"services: {len(services)}",
         f"subdomains: {len(subdomains)}",
         "---",
@@ -296,7 +296,7 @@ def update_wiki_log(log_path: str, result: dict) -> None:
     entry = (
         f"\n## [{today}] update | infrastructure-data (pulse sync)\n"
         f"- generated file updated: {generated_path}\n"
-        f"- pulse source: {config.PULSE_API_URL}\n"
+        f"- pulse source: {config.get_pulse_url()}\n"
     )
 
     log_file = Path(log_path)
