@@ -98,6 +98,22 @@ class TestToolHandlerJSONShape:
             assert key in data, f"missing key: {key}"
         assert isinstance(data["changed"], bool)
 
+
+    def test_wiki_file_uses_configured_wiki_page(self, tmp_wiki):
+        mp = self._make_mock_parser()
+        mu = self._make_mock_updater()
+        mw = self._make_mock_parser_wiki()
+
+        with patch.dict(os.environ, {"WIKI_PATH": str(tmp_wiki)}), \
+             patch("update_infrastructure.config.get_wiki_root", return_value=str(tmp_wiki)), \
+             patch("update_infrastructure.config.get_wiki_page", return_value="docs/custom-infra.md"), \
+             patch("update_infrastructure.parser", mp), \
+             patch("update_infrastructure.updater", mu), \
+             patch("update_infrastructure.parser_wiki", mw):
+            data = json.loads(_handle_update_tool("json"))
+
+        assert data["wiki_file"] == str(tmp_wiki / "docs/custom-infra.md")
+
     def test_source_counts(self, tmp_wiki):
         mp = self._make_mock_parser()
         mu = self._make_mock_updater()

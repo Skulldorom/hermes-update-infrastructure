@@ -47,7 +47,6 @@ except ImportError:  # pragma: no cover - supports direct module loading in test
 
 logger = logging.getLogger(__name__)
 
-WIKI_PAGE = config.WIKI_PAGE
 
 # ---------------------------------------------------------------------------
 # Intent parsing
@@ -147,6 +146,11 @@ def _build_topology_dict(machines_data: dict) -> dict:
 def _get_wiki_path() -> Path:
     """Resolve the wiki root path."""
     return Path(config.get_wiki_root())
+
+
+def _get_wiki_page_path(wiki_root: Path) -> Path:
+    """Resolve the configured infrastructure wiki page under *wiki_root*."""
+    return wiki_root / config.get_wiki_page()
 
 
 def _render_update_output(data: dict) -> str:
@@ -800,7 +804,7 @@ def _handle_update_tool(raw_args: str = "", **kwargs) -> str:
             return json.dumps({
                 "sync_completed_at": started_at,
                 "elapsed_seconds": elapsed,
-                "wiki_file": str(wiki_root / WIKI_PAGE),
+                "wiki_file": str(_get_wiki_page_path(wiki_root)),
                 "changed": False,
                 "source": {"services": len(data.get("services", [])),
                            "subdomains": len(data.get("subdomains", []))},
@@ -814,7 +818,7 @@ def _handle_update_tool(raw_args: str = "", **kwargs) -> str:
             return json.dumps({
                 "sync_completed_at": started_at,
                 "elapsed_seconds": 0,
-                "wiki_file": str(wiki_root / WIKI_PAGE),
+                "wiki_file": str(_get_wiki_page_path(wiki_root)),
                 "changed": False,
                 "intent": {"type": "help", "result": {}},
             })
@@ -947,7 +951,7 @@ def _handle_update_tool(raw_args: str = "", **kwargs) -> str:
             "sync_completed_at": started_at,
             "elapsed_seconds": elapsed,
             "generated_file": result["path"],
-            "wiki_file": str(wiki_root / WIKI_PAGE),
+            "wiki_file": str(_get_wiki_page_path(wiki_root)),
             "changed": result["changed"],
             "source": {"services": svc_count, "subdomains": sub_count},
             "cross_reference": cross_ref,
