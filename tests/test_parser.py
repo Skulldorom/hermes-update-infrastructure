@@ -112,6 +112,7 @@ class TestScaffoldEntityPage:
         assert "ip: 192.168.0.100" in content
         assert "host: thehoard" in content
         assert "os: Debian GNU/Linux 12" in content
+        assert "sources: [raw/sources/pulse-infrastructure-data.md]" in content
 
     def test_creates_with_vmid(self, tmp_wiki):
         result = scaffold_entity_page(
@@ -137,3 +138,4 @@ class TestScaffoldEntityPage:
         content = (tmp_wiki / "entities" / "basicsvc.md").read_text()
         assert "ip:" not in content
         assert "host:" not in content
+        assert "sources: [raw/sources/pulse-infrastructure-data.md]" in content

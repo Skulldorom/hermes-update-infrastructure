@@ -628,6 +628,7 @@ def scaffold_entity_page(
         f"updated: {today}",
         "type: container",
         "status: active",
+        "sources: [raw/sources/pulse-infrastructure-data.md]",
     ]
     if ip:
         fm_lines.append(f"ip: {ip}")
