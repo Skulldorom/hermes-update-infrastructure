@@ -196,25 +196,6 @@ def _build_cross_reference_section(data: dict) -> str:
     return "\n".join(lines)
 
 
-def _build_topology_diagram(data: dict) -> str:
-    """Generate the Network Topology section with embedded Mermaid diagram.
-
-    Uses entity pages from ``data["entities_dir"]`` when available; falls
-    back to an empty machine list so the section is always renderable.
-    """
-    entities_dir = data.get("entities_dir", "")
-    if entities_dir:
-        machines_data = parser_wiki.parse_entity_pages(entities_dir)
-    else:
-        machines_data = {"machines": []}
-
-    if not machines_data.get("machines"):
-        return "*(No entity pages found — run `/update-infrastructure` after adding `entities/*.md` files)*\n"
-
-    # SVG topology diagram (generated externally from Mermaid — no inline fence)
-    return "![Network Topology](../assets/topology.svg)\n"
-
-
 def write_generated_file(output_path: str, data: dict, dry_run: bool = False,
                         npm_data: dict | None = None) -> dict:
     """Write auto-generated infrastructure data to a dedicated file.
@@ -279,12 +260,6 @@ def write_generated_file(output_path: str, data: dict, dry_run: bool = False,
         "## Cross-Reference Findings",
         "",
         _build_cross_reference_section(data),
-        "",
-        "---",
-        "",
-        "## Topology",
-        "",
-        _build_topology_diagram(data),
     ]
 
     new_content = "\n".join(lines)
