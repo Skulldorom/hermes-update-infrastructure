@@ -51,7 +51,7 @@ The plugin will:
 
 1. Fetch service and host data from the Pulse monitoring API
 2. Cross-reference the data against your wiki entity pages
-3. Update `generated/infrastructure-data.md` with the latest data
+3. Update `raw/sources/pulse-infrastructure-data.md` with the latest data
 4. Hand off a structured review prompt to the agent loop (agent summarizes
    and follows up); inline sub-commands return direct output
 
@@ -102,7 +102,7 @@ Commands are **case-insensitive** and match on prefix/keyword, not exact string.
 - **Changed in Pulse** → updated in generated data file
 - **Only in wiki, never in Pulse** → preserved untouched (manual content)
 
-Auto-generated data is written to `generated/infrastructure-data.md`. The
+Auto-generated data is written to `raw/sources/pulse-infrastructure-data.md`. The
 Hermes agent reads that file and updates `guides/homelab-infrastructure.md`.
 Everything else in the wiki page is your manual territory.
 
@@ -337,7 +337,7 @@ load entities/*.md ──→ noise-filtered cross-reference checks
 diff generated data file ──→ add/update/skip auto sections
       │
       ▼
-write generated/infrastructure-data.md + log.md
+write raw/sources/pulse-infrastructure-data.md + log.md
       │
       ▼
 execute intent (create / fix-ip / fix all / check / cleanup)

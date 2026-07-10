@@ -61,10 +61,10 @@ WIKI_PAGE: str = "guides/homelab-infrastructure.md"
 # ---------------------------------------------------------------------------
 
 #: Directory (relative to the wiki root) where the generated data file is written.
-GENERATED_OUTPUT_DIR: str = "generated"
+GENERATED_OUTPUT_DIR: str = "raw/sources"
 
 #: Filename of the auto-generated infrastructure data file.
-GENERATED_DATA_FILE: str = "infrastructure-data.md"
+GENERATED_DATA_FILE: str = "pulse-infrastructure-data.md"
 
 # ---------------------------------------------------------------------------
 # Subdomain extraction

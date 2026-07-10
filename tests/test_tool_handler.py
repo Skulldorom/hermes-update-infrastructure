@@ -55,7 +55,7 @@ class TestToolHandlerJSONShape:
         mock = MagicMock()
         mock.write_generated_file.return_value = {
             "changed": False,
-            "path": "/fake/wiki/generated/infrastructure-data.md",
+            "path": "/fake/wiki/raw/sources/pulse-infrastructure-data.md",
             "hash_before": "abc123",
             "hash_after": "abc123",
         }
