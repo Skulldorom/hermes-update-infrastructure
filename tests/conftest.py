@@ -4,7 +4,39 @@ import json
 import tempfile
 from pathlib import Path
 
+import importlib.util
+import sys
+
 import pytest
+
+
+def _ensure_source_package_importable() -> None:
+    """Allow running pytest directly from the plugin checkout.
+
+    The package is intentionally stored at the repository root for Hermes plugin
+    installation, while editable installs map that root to the
+    ``update_infrastructure`` package. Direct ``pytest`` runs do not get that
+    editable-install mapping, so install an equivalent package alias for tests.
+    """
+    if "update_infrastructure" in sys.modules:
+        return
+
+    repo_root = Path(__file__).resolve().parents[1]
+    init_file = repo_root / "__init__.py"
+    spec = importlib.util.spec_from_file_location(
+        "update_infrastructure",
+        init_file,
+        submodule_search_locations=[str(repo_root)],
+    )
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load update_infrastructure from {init_file}")
+
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["update_infrastructure"] = module
+    spec.loader.exec_module(module)
+
+
+_ensure_source_package_importable()
 
 
 @pytest.fixture
