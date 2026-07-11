@@ -5,7 +5,7 @@ homelab wiki from [Pulse](https://pulse.zingerlabs.com/) monitoring API data,
 with optional [NGINX Proxy Manager](https://nginxproxymanager.com/) (NPM)
 integration for domain/proxy-host cross-referencing.
 
-![Version](https://img.shields.io/badge/version-3.1.1-blue)
+![Version](https://img.shields.io/badge/version-3.1.2-blue)
 
 ## Install
 
