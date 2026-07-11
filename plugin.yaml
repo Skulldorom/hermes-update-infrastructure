@@ -1,0 +1,10 @@
+name: update-infrastructure
+version: 1.0.1
+description: >
+  update_infrastructure / update_infrastructure_review tools (infra toolset)
+  + /update-infrastructure (aliases: /update-infra, /sync-infra) — sync
+  homelab wiki from Pulse monitoring API, with noise-filtered
+  cross-reference checks, entity page scaffolding, IP drift repair,
+  and agent review prompt by default.
+author: update-infrastructure contributors
+provides_hooks: []

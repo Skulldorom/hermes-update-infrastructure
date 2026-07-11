@@ -1,0 +1,31 @@
+# Python caches/build artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.pyright/
+build/
+dist/
+*.egg-info/
+
+# Local virtual environments
+.venv/
+venv/
+env/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+
+# Local/editor noise
+.DS_Store
+.vscode/
+.idea/
+
+# Generated wiki sync output (when running against a repo-local wiki root)
+raw/sources/pulse-infrastructure-data.md
+log.md
