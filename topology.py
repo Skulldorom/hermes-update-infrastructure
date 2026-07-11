@@ -6,7 +6,6 @@ suitable for embedding in wiki markdown (renders natively in Obsidian).
 
 import re
 
-
 # ---------------------------------------------------------------------------
 # Colour palette
 # ---------------------------------------------------------------------------

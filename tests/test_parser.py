@@ -1,6 +1,5 @@
 """Tests for parser helpers and Pulse API integration."""
 
-import _bootstrap  # noqa: F401 — loads update_infrastructure
 
 import pytest
 

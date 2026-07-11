@@ -5,7 +5,6 @@ Hermes is absent in the test environment, so the config.yaml layer is simulated
 by monkey-patching ``config._load_infra_config``.
 """
 
-import _bootstrap  # noqa: F401 — loads update_infrastructure
 
 import os
 from unittest.mock import patch

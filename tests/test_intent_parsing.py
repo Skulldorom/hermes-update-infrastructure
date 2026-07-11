@@ -1,6 +1,5 @@
 """Tests for intent parsing in __init__.py."""
 
-import _bootstrap  # noqa: F401 — loads update_infrastructure
 
 import pytest
 

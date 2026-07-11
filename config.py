@@ -8,9 +8,7 @@ Use the public ``get_*()`` functions — they implement the resolution chain
 automatically.  The raw constants below are the final fallback values.
 """
 
-from pathlib import Path
 import os
-
 
 # ---------------------------------------------------------------------------
 # Hermes config.yaml integration

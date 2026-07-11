@@ -104,6 +104,23 @@ def _extract_vm_row(row: list[str], _header: list[str], child: dict) -> None:
             child["services"] = [service]
 
 
+def _split_table_row(line: str) -> list[str]:
+    """Split a pipe row without treating pipes inside wiki links as delimiters."""
+    protected: list[str] = []
+
+    def protect(match: re.Match) -> str:
+        protected.append(match.group(0))
+        return f"__WIKI_LINK_{len(protected) - 1}__"
+
+    safe_line = _WIKI_LINK.sub(protect, line)
+    cells = [cell.strip() for cell in safe_line.split("|")[1:-1]]
+    for index, cell in enumerate(cells):
+        for link_index, link in enumerate(protected):
+            cell = cell.replace(f"__WIKI_LINK_{link_index}__", link)
+        cells[index] = cell
+    return cells
+
+
 def _parse_body_tables(
     body: str, parent_slug: str, parent_ip: str, existing_slugs: set[str]
 ) -> list[dict]:
@@ -139,7 +156,7 @@ def _parse_body_tables(
             line = line.strip()
             if not line.startswith("|"):
                 continue
-            cells = [c.strip() for c in line.split("|")[1:-1]]
+            cells = _split_table_row(line)
             # Skip separator rows (all dashes/spaces/colons, e.g. |---|:---:|---|)
             if all(re.fullmatch(r"[- :]*", c) for c in cells):
                 continue

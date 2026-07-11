@@ -1,6 +1,5 @@
 """Tests for the tool handler JSON output shape and error handling."""
 
-import _bootstrap  # noqa: F401 — loads update_infrastructure
 
 import json
 import os
