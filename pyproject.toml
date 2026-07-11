@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hermes-update-infrastructure"
-version = "3.0.19"
+version = "3.0.21"
 description = "Hermes plugin for syncing a homelab wiki from Pulse"
 readme = "README.md"
 requires-python = ">=3.10"
