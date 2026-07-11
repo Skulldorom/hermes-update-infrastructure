@@ -77,10 +77,10 @@ def mock_pulse_data():
     return {
         "services": [
             {
-                "name": "pihole",
+                "name": "dns-service",
                 "group": "docker",
-                "ip": "192.168.0.100",
-                "host": "thehoard",
+                "ip": "198.51.100.100",
+                "host": "host-alpha",
                 "vmid": "",
                 "os": "Debian GNU/Linux 12",
                 "status": "running",
@@ -91,8 +91,8 @@ def mock_pulse_data():
             {
                 "name": "authentik",
                 "group": "docker",
-                "ip": "192.168.0.200",
-                "host": "thehoard",
+                "ip": "198.51.100.200",
+                "host": "host-alpha",
                 "vmid": "",
                 "os": "",
                 "status": "running",
@@ -103,8 +103,8 @@ def mock_pulse_data():
             {
                 "name": "haos15.2",
                 "group": "proxmox-pve",
-                "ip": "192.168.0.7",
-                "host": "thesentinel",
+                "ip": "198.51.100.7",
+                "host": "host-beta",
                 "vmid": 103,
                 "os": "Home Assistant OS",
                 "status": "running",

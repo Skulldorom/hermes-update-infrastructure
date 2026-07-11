@@ -17,7 +17,7 @@ class TestSlugify:
         assert _slugify("Hello World") == "hello-world"
 
     def test_special_chars(self):
-        assert _slugify("AdGuard Primary") == "adguard-primary"
+        assert _slugify("DNS Primary") == "dns-primary"
 
     def test_already_slug(self):
         assert _slugify("already-slug") == "already-slug"
@@ -30,16 +30,16 @@ class TestSlugify:
 
 class TestExtractIPFromURL:
     def test_standard_http_ip(self):
-        assert _extract_ip_from_url("http://192.168.0.1") == "192.168.0.1"
+        assert _extract_ip_from_url("http://198.51.100.1") == "198.51.100.1"
 
     def test_standard_https_ip(self):
-        assert _extract_ip_from_url("https://10.0.0.1") == "10.0.0.1"
+        assert _extract_ip_from_url("https://203.0.113.1") == "203.0.113.1"
 
     def test_ip_with_port(self):
-        assert _extract_ip_from_url("http://192.168.0.1:8080") == "192.168.0.1"
+        assert _extract_ip_from_url("http://198.51.100.1:8080") == "198.51.100.1"
 
     def test_ip_with_path(self):
-        assert _extract_ip_from_url("http://192.168.0.1/admin") == "192.168.0.1"
+        assert _extract_ip_from_url("http://198.51.100.1/admin") == "198.51.100.1"
 
     def test_domain_not_ip(self):
         assert _extract_ip_from_url("https://example.com") is None
@@ -56,14 +56,14 @@ class TestParseFrontmatter:
         path = tmp_wiki / "test.md"
         path.write_text("""---
 title: Test Service
-ip: 192.168.0.1
+ip: 198.51.100.1
 type: container
 ---
 # Body
 """)
         result = _parse_frontmatter(path)
         assert result["title"] == "Test Service"
-        assert result["ip"] == "192.168.0.1"
+        assert result["ip"] == "198.51.100.1"
         assert result["type"] == "container"
 
     def test_no_frontmatter(self, tmp_wiki):
@@ -100,34 +100,34 @@ class TestIsPersonalDeviceEntity:
 class TestScaffoldEntityPage:
     def test_creates_with_pulse_fields(self, tmp_wiki):
         result = scaffold_entity_page(
-            tmp_wiki, "PiHole",
-            ip="192.168.0.100",
-            host="thehoard",
+            tmp_wiki, "DNS Service",
+            ip="198.51.100.100",
+            host="host-alpha",
             os="Debian GNU/Linux 12",
             vmid="",
         )
         assert result["created"] is True
-        content = (tmp_wiki / "entities" / "pihole.md").read_text()
-        assert "ip: 192.168.0.100" in content
-        assert "host: thehoard" in content
+        content = (tmp_wiki / "entities" / "dns-service.md").read_text()
+        assert "ip: 198.51.100.100" in content
+        assert "host: host-alpha" in content
         assert "os: Debian GNU/Linux 12" in content
         assert "sources: [raw/sources/pulse-infrastructure-data.md]" in content
 
     def test_creates_with_vmid(self, tmp_wiki):
         result = scaffold_entity_page(
-            tmp_wiki, "HAOS",
-            ip="192.168.0.7",
-            host="thesentinel",
+            tmp_wiki, "Automation OS",
+            ip="198.51.100.7",
+            host="host-beta",
             os="Home Assistant OS",
             vmid=103,
         )
         assert result["created"] is True
-        content = (tmp_wiki / "entities" / "haos.md").read_text()
+        content = (tmp_wiki / "entities" / "automation-os.md").read_text()
         assert "vmid: 103" in content
 
     def test_no_duplicate(self, tmp_wiki):
-        scaffold_entity_page(tmp_wiki, "TestSvc", ip="192.168.0.1")
-        result2 = scaffold_entity_page(tmp_wiki, "TestSvc", ip="192.168.0.1")
+        scaffold_entity_page(tmp_wiki, "TestSvc", ip="198.51.100.1")
+        result2 = scaffold_entity_page(tmp_wiki, "TestSvc", ip="198.51.100.1")
         assert result2["created"] is False
         assert result2["reason"] == "already exists"
 

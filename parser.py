@@ -20,7 +20,7 @@ except ImportError:  # pragma: no cover - supports direct module loading in test
 def _slugify(name: str) -> str:
     """Convert a service/entity name to a lowercase hyphenated slug.
 
-    e.g. "AdGuard Primary" → "adguard-primary", "Bento PDF" → "bento-pdf"
+    e.g. "DNS Primary" → "dns-primary", "Bento PDF" → "bento-pdf"
     """
     slug = name.lower().replace(" ", "-")
     return re.sub(r"[^a-z0-9-]", "", slug)
@@ -443,7 +443,7 @@ def cross_reference(data: dict, entity_pages: dict | None) -> dict:
             # When an entity declares pulse_host, require the Pulse
             # resource's host to match — otherwise it's a different
             # resource with the same name (common for container pairs
-            # like AdGuard Primary/Secondary on separate nodes).
+            # like DNS Primary/Secondary on separate nodes).
             ph = entity.get("pulse_host")
             if ph:
                 host_slug = _slugify(str(svc.get("host", "")))
@@ -452,8 +452,8 @@ def cross_reference(data: dict, entity_pages: dict | None) -> dict:
 
         if entity is None:
             # Fallback: try matching via pulse_host frontmatter field.
-            # Entity pages like "aegis-proxmox" declare pulse_host: aegis,
-            # so Pulse service named "aegis" resolves to the correct entity
+            # Entity pages like "host-alpha-proxmox" declare pulse_host: host-alpha,
+            # so Pulse service named "host-alpha" resolves to the correct entity
             # instead of falsely reporting as missing.
             for _slug, _entity in entity_pages.items():
                 ph = _entity.get("pulse_host")

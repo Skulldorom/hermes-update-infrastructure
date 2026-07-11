@@ -138,17 +138,17 @@ class TestGetServerAliases:
 
     def test_config_yaml_dict(self):
         with patch.object(config, "_load_infra_config",
-                          lambda: _infra_cfg(server_aliases={"nas": "thehoard-nas",
-                                                              "pve": "aegis-proxmox|sentinel-proxmox"})):
+                          lambda: _infra_cfg(server_aliases={"nas": "storage-node-a",
+                                                              "pve": "host-alpha-proxmox|host-beta-proxmox"})):
             result = config.get_server_aliases()
-        assert result["nas"] == ["thehoard-nas"]
-        assert result["pve"] == ["aegis-proxmox", "sentinel-proxmox"]
+        assert result["nas"] == ["storage-node-a"]
+        assert result["pve"] == ["host-alpha-proxmox", "host-beta-proxmox"]
 
     def test_config_yaml_list_values(self):
         with patch.object(config, "_load_infra_config",
-                          lambda: _infra_cfg(server_aliases={"nas": ["thehoard-nas", "backup-nas"]})):
+                          lambda: _infra_cfg(server_aliases={"nas": ["storage-node-a", "backup-nas"]})):
             result = config.get_server_aliases()
-        assert result["nas"] == ["thehoard-nas", "backup-nas"]
+        assert result["nas"] == ["storage-node-a", "backup-nas"]
 
 
 # ---------------------------------------------------------------------------

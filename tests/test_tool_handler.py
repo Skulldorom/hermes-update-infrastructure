@@ -16,10 +16,10 @@ class TestToolHandlerJSONShape:
         mock.parse_all.return_value = {
             "services": [
                 {
-                    "name": "pihole",
+                    "name": "dns-service",
                     "group": "docker",
-                    "ip": "192.168.0.100",
-                    "host": "thehoard",
+                    "ip": "198.51.100.100",
+                    "host": "host-alpha",
                     "vmid": "",
                     "os": "Debian GNU/Linux 12",
                     "status": "running",
@@ -31,8 +31,8 @@ class TestToolHandlerJSONShape:
             "subdomains": [],
         }
         mock.load_entity_pages.return_value = {
-            "pihole": {"ip": "192.168.0.100", "type": "container",
-                       "_slug": "pihole", "_path": "/fake/entities/pihole.md"},
+            "dns-service": {"ip": "198.51.100.100", "type": "container",
+                       "_slug": "dns-service", "_path": "/fake/entities/dns-service.md"},
         }
         mock.cross_reference.return_value = {
             "entities_dir_found": True,
@@ -46,7 +46,7 @@ class TestToolHandlerJSONShape:
             "created": True, "path": "/fake/entities/test.md", "slug": "test",
         }
         mock.fix_entity_ip.return_value = {
-            "fixed": True, "path": "/fake/entities/pihole.md",
+            "fixed": True, "path": "/fake/entities/dns-service.md",
         }
         return mock
 
@@ -148,11 +148,11 @@ class TestToolHandlerJSONShape:
         mw = self._make_mock_parser_wiki()
         mw.parse_entity_pages.return_value = {
             "machines": [
-                {"name": "Beast", "slug": "beast", "ip": "192.168.0.1",
+                {"name": "Compute Host", "slug": "compute-host", "ip": "198.51.100.1",
                  "host": "", "category": "infrastructure", "os": "", "services": [],
                  "tailscale_ip": ""},
-                {"name": "Dozzle", "slug": "dozzle", "ip": "192.168.0.1",
-                 "host": "beast", "category": "container", "os": "", "services": [],
+                {"name": "Log Viewer", "slug": "log-viewer", "ip": "198.51.100.1",
+                 "host": "compute-host", "category": "container", "os": "", "services": [],
                  "tailscale_ip": ""},
             ],
         }
@@ -164,7 +164,7 @@ class TestToolHandlerJSONShape:
             data = json.loads(_handle_update_tool("json"))
 
         assert data["topology"]["machine_count"] == 2
-        assert data["topology"]["connections"] == [{"parent": "Beast", "child": "Dozzle"}]
+        assert data["topology"]["connections"] == [{"parent": "Compute Host", "child": "Log Viewer"}]
 
     def test_json_escape_hatch_intent(self, tmp_wiki):
         mp = self._make_mock_parser()
@@ -253,7 +253,7 @@ class TestToolHandlerJSONShape:
             "entities_dir_found": True,
             "missing_entity_pages": [],
             "ip_drift": [
-                {"name": "pihole", "pulse_ip": "192.168.0.200", "entity_ip": "192.168.0.100"},
+                {"name": "dns-service", "pulse_ip": "198.51.100.200", "entity_ip": "198.51.100.100"},
             ],
             "orphaned_entity_pages": [],
             "unmapped_hosts": [],
@@ -270,4 +270,4 @@ class TestToolHandlerJSONShape:
         assert data["intent"]["type"] == "fix_all"
         fixed = data["intent"]["result"]["fixed"]
         assert len(fixed) == 1
-        assert fixed[0]["ip"] == "192.168.0.200"
+        assert fixed[0]["ip"] == "198.51.100.200"

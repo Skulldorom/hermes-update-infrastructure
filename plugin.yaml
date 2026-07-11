@@ -1,5 +1,5 @@
 name: update-infrastructure
-version: 3.1.2
+version: 1.0.0
 description: >
   update_infrastructure / update_infrastructure_review tools (infra toolset)
   + /update-infrastructure (aliases: /update-infra, /sync-infra) — sync

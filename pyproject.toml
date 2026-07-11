@@ -4,11 +4,18 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hermes-update-infrastructure"
-version = "3.1.2"
+version = "1.0.0"
 description = "Hermes plugin for syncing a homelab wiki from Pulse"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11,<3.14"
 license = { text = "MIT" }
+
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+]
 dependencies = [
   "PyYAML>=6.0",
   "requests>=2.31",
@@ -32,7 +39,7 @@ update_infrastructure = ["plugin.yaml"]
 testpaths = ["tests"]
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py311"
 line-length = 100
 exclude = ["tests"]
 

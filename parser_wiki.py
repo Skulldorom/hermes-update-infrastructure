@@ -257,7 +257,7 @@ def parse_entity_pages(entities_dir: str) -> dict:
 
     # ── Second pass: parse inline container / VM tables ──────────
     # Only dedupe against actual entity-page slugs — a container
-    # named "dozzle" on docker-host is distinct from "dozzle" on
+    # named "log-viewer" on docker-host is distinct from "log-viewer" on
     # docker-crucial, so we don't cross-dedupe table children.
     entity_slugs = {m["slug"] for m in machines}
     all_slugs = set(entity_slugs)

@@ -8,7 +8,7 @@ from update_infrastructure.parser import cross_reference
 
 class TestCrossReference:
     def test_no_entities_dir(self):
-        data = {"services": [{"name": "pihole", "ip": "192.168.0.100", "host": ""}]}
+        data = {"services": [{"name": "dns-service", "ip": "198.51.100.100", "host": ""}]}
         result = cross_reference(data, None)
         assert result == {"entities_dir_found": False}
 
@@ -23,70 +23,70 @@ class TestCrossReference:
         assert result["unmapped_hosts"] == []
 
     def test_missing_entity_page(self):
-        data = {"services": [{"name": "NewService", "ip": "192.168.0.50", "host": ""}]}
+        data = {"services": [{"name": "NewService", "ip": "198.51.100.50", "host": ""}]}
         entity_pages = {}
         result = cross_reference(data, entity_pages)
         assert len(result["missing_entity_pages"]) == 1
         assert result["missing_entity_pages"][0]["name"] == "NewService"
 
     def test_generic_infra_not_flagged(self):
-        data = {"services": [{"name": "Proxmox", "ip": "192.168.0.1", "host": ""}]}
+        data = {"services": [{"name": "Proxmox", "ip": "198.51.100.1", "host": ""}]}
         entity_pages = {}
         result = cross_reference(data, entity_pages)
         assert len(result["missing_entity_pages"]) == 0
 
     def test_service_with_entity_page_not_missing(self):
-        data = {"services": [{"name": "pihole", "ip": "192.168.0.100", "host": ""}]}
+        data = {"services": [{"name": "dns-service", "ip": "198.51.100.100", "host": ""}]}
         entity_pages = {
-            "pihole": {"ip": "192.168.0.100", "type": "container",
-                       "_slug": "pihole", "_path": "/fake/pihole.md"},
+            "dns-service": {"ip": "198.51.100.100", "type": "container",
+                       "_slug": "dns-service", "_path": "/fake/dns-service.md"},
         }
         result = cross_reference(data, entity_pages)
         assert len(result["missing_entity_pages"]) == 0
 
     def test_ip_drift_detected(self):
         data = {
-            "services": [{"name": "pihole", "ip": "192.168.0.200", "host": ""}],
+            "services": [{"name": "dns-service", "ip": "198.51.100.200", "host": ""}],
         }
         entity_pages = {
-            "pihole": {"ip": "192.168.0.100", "type": "container",
-                       "_slug": "pihole", "_path": "/fake/pihole.md"},
+            "dns-service": {"ip": "198.51.100.100", "type": "container",
+                       "_slug": "dns-service", "_path": "/fake/dns-service.md"},
         }
         result = cross_reference(data, entity_pages)
         assert len(result["ip_drift"]) == 1
-        assert result["ip_drift"][0]["name"] == "pihole"
-        assert result["ip_drift"][0]["pulse_ip"] == "192.168.0.200"
-        assert result["ip_drift"][0]["entity_ip"] == "192.168.0.100"
+        assert result["ip_drift"][0]["name"] == "dns-service"
+        assert result["ip_drift"][0]["pulse_ip"] == "198.51.100.200"
+        assert result["ip_drift"][0]["entity_ip"] == "198.51.100.100"
 
     def test_ip_match_no_drift(self):
         data = {
-            "services": [{"name": "pihole", "ip": "192.168.0.100", "host": ""}],
+            "services": [{"name": "dns-service", "ip": "198.51.100.100", "host": ""}],
         }
         entity_pages = {
-            "pihole": {"ip": "192.168.0.100", "type": "container",
-                       "_slug": "pihole", "_path": "/fake/pihole.md"},
+            "dns-service": {"ip": "198.51.100.100", "type": "container",
+                       "_slug": "dns-service", "_path": "/fake/dns-service.md"},
         }
         result = cross_reference(data, entity_pages)
         assert len(result["ip_drift"]) == 0
 
     def test_no_entity_ip_no_drift(self):
         data = {
-            "services": [{"name": "pihole", "ip": "192.168.0.200", "host": ""}],
+            "services": [{"name": "dns-service", "ip": "198.51.100.200", "host": ""}],
         }
         entity_pages = {
-            "pihole": {"type": "container",
-                       "_slug": "pihole", "_path": "/fake/pihole.md"},
+            "dns-service": {"type": "container",
+                       "_slug": "dns-service", "_path": "/fake/dns-service.md"},
         }
         result = cross_reference(data, entity_pages)
         assert len(result["ip_drift"]) == 0
 
     def test_no_pulse_ip_no_drift(self):
         data = {
-            "services": [{"name": "pihole", "ip": "", "host": ""}],
+            "services": [{"name": "dns-service", "ip": "", "host": ""}],
         }
         entity_pages = {
-            "pihole": {"ip": "192.168.0.100", "type": "container",
-                       "_slug": "pihole", "_path": "/fake/pihole.md"},
+            "dns-service": {"ip": "198.51.100.100", "type": "container",
+                       "_slug": "dns-service", "_path": "/fake/dns-service.md"},
         }
         result = cross_reference(data, entity_pages)
         assert len(result["ip_drift"]) == 0
@@ -114,7 +114,7 @@ class TestCrossReference:
 
     def test_unmapped_host_field(self):
         data = {
-            "services": [{"name": "Glances", "ip": "192.168.0.50",
+            "services": [{"name": "Metrics Agent", "ip": "198.51.100.50",
                           "host": "mystery-box"}],
         }
         entity_pages = {
@@ -123,19 +123,19 @@ class TestCrossReference:
         }
         result = cross_reference(data, entity_pages)
         assert len(result["unmapped_hosts"]) == 1
-        assert result["unmapped_hosts"][0]["name"] == "Glances"
+        assert result["unmapped_hosts"][0]["name"] == "Metrics Agent"
         assert result["unmapped_hosts"][0]["host"] == "mystery-box"
 
     def test_pulse_host_fallback_resolves_entity(self):
-        """Service named aegis should match entity aegis-proxmox via pulse_host."""
-        data = {"services": [{"name": "aegis", "ip": "192.168.0.6", "host": ""}]}
+        """Service named host-alpha should match entity host-alpha-proxmox via pulse_host."""
+        data = {"services": [{"name": "host-alpha", "ip": "198.51.100.6", "host": ""}]}
         entity_pages = {
-            "aegis-proxmox": {
-                "pulse_host": "aegis",
-                "ip": "192.168.0.6",
+            "host-alpha-proxmox": {
+                "pulse_host": "host-alpha",
+                "ip": "198.51.100.6",
                 "category": "infrastructure",
-                "_slug": "aegis-proxmox",
-                "_path": "/fake/aegis-proxmox.md",
+                "_slug": "host-alpha-proxmox",
+                "_path": "/fake/host-alpha-proxmox.md",
             },
         }
         result = cross_reference(data, entity_pages)
@@ -144,7 +144,7 @@ class TestCrossReference:
 
     def test_mapped_host_not_flagged(self):
         data = {
-            "services": [{"name": "Glances", "ip": "192.168.0.50",
+            "services": [{"name": "Metrics Agent", "ip": "198.51.100.50",
                           "host": "docker-host"}],
         }
         entity_pages = {
@@ -159,24 +159,24 @@ class TestCrossReference:
         entity via pulse_host. No false IP drift, no missing pages."""
         data = {
             "services": [
-                {"name": "adguard", "ip": "192.168.0.2", "host": "aegis"},
-                {"name": "adguard", "ip": "192.168.0.8", "host": "thesentinel"},
+                {"name": "dns-filter", "ip": "198.51.100.2", "host": "host-alpha"},
+                {"name": "dns-filter", "ip": "198.51.100.8", "host": "host-beta"},
             ],
         }
         entity_pages = {
-            "adguard": {
-                "pulse_host": "aegis",
-                "ip": "192.168.0.2",
+            "dns-filter": {
+                "pulse_host": "host-alpha",
+                "ip": "198.51.100.2",
                 "type": "container",
-                "_slug": "adguard",
-                "_path": "/fake/adguard.md",
+                "_slug": "dns-filter",
+                "_path": "/fake/dns-filter.md",
             },
-            "adguard-secondary": {
-                "pulse_host": "thesentinel",
-                "ip": "192.168.0.8",
+            "dns-secondary": {
+                "pulse_host": "host-beta",
+                "ip": "198.51.100.8",
                 "type": "container",
-                "_slug": "adguard-secondary",
-                "_path": "/fake/adguard-secondary.md",
+                "_slug": "dns-secondary",
+                "_path": "/fake/dns-secondary.md",
             },
         }
         result = cross_reference(data, entity_pages)
@@ -192,16 +192,16 @@ class TestCrossReference:
         It must not be reported as IP drift against that entity."""
         data = {
             "services": [
-                {"name": "adguard", "ip": "192.168.0.8", "host": "thesentinel"},
+                {"name": "dns-filter", "ip": "198.51.100.8", "host": "host-beta"},
             ],
         }
         entity_pages = {
-            "adguard": {
-                "pulse_host": "aegis",
-                "ip": "192.168.0.2",
+            "dns-filter": {
+                "pulse_host": "host-alpha",
+                "ip": "198.51.100.2",
                 "type": "container",
-                "_slug": "adguard",
-                "_path": "/fake/adguard.md",
+                "_slug": "dns-filter",
+                "_path": "/fake/dns-filter.md",
             },
         }
         result = cross_reference(data, entity_pages)

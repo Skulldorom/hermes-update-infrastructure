@@ -9,17 +9,17 @@ from update_infrastructure.pulse_client import _pick_ip, build_service_list, bui
 
 class TestPickIP:
     def test_prefers_192_168(self):
-        assert _pick_ip(["10.0.0.5", "192.168.0.7", "100.64.0.1"]) == "192.168.0.7"
+        assert _pick_ip(["10.255.0.5", "192.168.255.7", "100.64.0.1"]) == "192.168.255.7"
 
     def test_falls_back_to_10(self):
-        assert _pick_ip(["10.0.0.5", "100.64.0.1"]) == "10.0.0.5"
+        assert _pick_ip(["10.255.0.5", "100.64.0.1"]) == "10.255.0.5"
 
     def test_falls_back_to_172_16(self):
         assert _pick_ip(["172.16.0.5"]) == "172.16.0.5"
 
     def test_skips_tailscale(self):
-        result = _pick_ip(["100.64.0.1", "192.168.0.10"])
-        assert result == "192.168.0.10"
+        result = _pick_ip(["100.64.0.1", "192.168.255.10"])
+        assert result == "192.168.255.10"
 
     def test_empty_list(self):
         assert _pick_ip([]) == ""
@@ -34,18 +34,18 @@ class TestBuildServiceList:
     def test_vm_resource(self):
         resources = [
             {
-                "id": "thesentinel:thesentinel:103",
+                "id": "host-beta:host-beta:103",
                 "type": "vm",
                 "name": "haos15.2",
                 "platformType": "proxmox-pve",
                 "status": "running",
                 "parentId": "",
-                "tags": ["192.168.0.7", "home-assistant"],
+                "tags": ["198.51.100.7", "home-assistant"],
                 "platformData": {
                     "vmid": 103,
-                    "node": "thesentinel",
+                    "node": "host-beta",
                     "osName": "Home Assistant OS",
-                    "ipAddresses": ["172.30.232.1", "192.168.0.7"],
+                    "ipAddresses": ["198.51.100.7"],
                 },
             }
         ]
@@ -53,8 +53,8 @@ class TestBuildServiceList:
         assert len(services) == 1
         svc = services[0]
         assert svc["name"] == "haos15.2"
-        assert svc["ip"] == "192.168.0.7"
-        assert svc["host"] == "thesentinel"
+        assert svc["ip"] == "198.51.100.7"
+        assert svc["host"] == "host-beta"
         assert svc["vmid"] == 103
         assert svc["os"] == "Home Assistant OS"
         assert svc["status"] == "running"
@@ -73,7 +73,7 @@ class TestBuildServiceList:
                 "tags": [],
                 "platformData": {
                     "hostId": "fe93158d",
-                    "hostName": "TheHoard",
+                    "hostName": "HostAlpha",
                     "image": "lscr.io/linuxserver/qbittorrent:latest",
                     "state": "running",
                     "ipAddresses": [],
@@ -85,7 +85,7 @@ class TestBuildServiceList:
         svc = services[0]
         assert svc["name"] == "qbittorrent"
         assert svc["ip"] == ""
-        assert svc["host"] == "TheHoard"
+        assert svc["host"] == "HostAlpha"
         assert svc["type"] == "app-container"
         assert svc["parent_id"] == "fe93158d"
 
@@ -106,32 +106,32 @@ class TestBuildTopology:
             {
                 "id": "abc",
                 "type": "system-container",
-                "name": "pihole",
+                "name": "dns-service",
                 "platformType": "proxmox-pve",
                 "status": "running",
                 "parentId": "",
                 "tags": [],
-                "platformData": {"node": "aegis", "ipAddresses": ["192.168.0.100"]},
+                "platformData": {"node": "host-alpha", "ipAddresses": ["198.51.100.100"]},
             }
         ]
         topo = build_topology(resources)
         machines = topo["machines"]
         assert len(machines) == 1
         assert machines[0]["category"] == "container"
-        assert machines[0]["ip"] == "192.168.0.100"
-        assert machines[0]["host"] == "aegis"
+        assert machines[0]["ip"] == "198.51.100.100"
+        assert machines[0]["host"] == "host-alpha"
 
     def test_node_category(self):
         resources = [
             {
                 "id": "node1",
                 "type": "agent",
-                "name": "aegis",
+                "name": "host-alpha",
                 "platformType": "proxmox-pve",
                 "status": "online",
                 "parentId": "",
                 "tags": [],
-                "platformData": {"ipAddresses": ["192.168.0.5"]},
+                "platformData": {"ipAddresses": ["198.51.100.5"]},
             }
         ]
         topo = build_topology(resources)
@@ -148,11 +148,11 @@ class TestBuildTopology:
                 "parentId": "",
                 "tags": [],
                 "platformData": {
-                    "node": "aegis",
-                    "ipAddresses": ["192.168.0.10", "100.64.0.5"],
+                    "node": "host-alpha",
+                    "ipAddresses": ["198.51.100.10", "100.64.0.5"],
                 },
             }
         ]
         topo = build_topology(resources)
         assert topo["machines"][0]["tailscale_ip"] == "100.64.0.5"
-        assert topo["machines"][0]["ip"] == "192.168.0.10"
+        assert topo["machines"][0]["ip"] == "198.51.100.10"

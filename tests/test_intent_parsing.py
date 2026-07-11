@@ -60,9 +60,9 @@ class TestParseIntent:
         assert params["name"] == "Pihole"
 
     def test_fix_ip_space_variant(self):
-        intent, params = _parse_intent('fix ip "AdGuard Primary"')
+        intent, params = _parse_intent('fix ip "DNS Primary"')
         assert intent == "fix_ip"
-        assert params["name"] == "AdGuard Primary"
+        assert params["name"] == "DNS Primary"
 
     def test_create_quoted(self):
         intent, params = _parse_intent('create "Bento PDF"')
@@ -85,9 +85,9 @@ class TestParseIntent:
         assert params["name"] == "Pihole"
 
     def test_check_unquoted(self):
-        intent, params = _parse_intent("check pihole")
+        intent, params = _parse_intent("check dns-service")
         assert intent == "check"
-        assert params["name"] == "pihole"
+        assert params["name"] == "dns-service"
 
     def test_unrecognised_becomes_echo(self):
         intent, params = _parse_intent("some random text here")

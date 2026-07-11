@@ -19,8 +19,8 @@ from update_infrastructure.npm_client import (
 SAMPLE_PROXY_HOSTS = [
     {
         "id": 24,
-        "domain_names": ["adguard-primary.skulldorom.xyz"],
-        "forward_host": "192.168.0.2",
+        "domain_names": ["dns-primary.example.net"],
+        "forward_host": "198.51.100.2",
         "forward_port": 80,
         "forward_scheme": "http",
         "ssl_forced": True,
@@ -36,8 +36,8 @@ SAMPLE_PROXY_HOSTS = [
     },
     {
         "id": 25,
-        "domain_names": ["grafana.skulldorom.xyz"],
-        "forward_host": "192.168.0.10",
+        "domain_names": ["grafana.example.net"],
+        "forward_host": "198.51.100.10",
         "forward_port": 3000,
         "forward_scheme": "http",
         "ssl_forced": True,
@@ -54,7 +54,7 @@ SAMPLE_PROXY_HOSTS = [
 ]
 
 SAMPLE_CERTIFICATES = [
-    {"id": 7, "domain_names": ["*.skulldorom.xyz"], "expires_on": "2026-01-01"},
+    {"id": 7, "domain_names": ["*.example.net"], "expires_on": "2026-01-01"},
 ]
 
 SAMPLE_ACCESS_LISTS = [
@@ -66,9 +66,9 @@ DOMAINS_MD_CONTENT = """\
 
 | Domain | Subdomain | Notes |
 |--------|-----------|-------|
-|| skulldorom.xyz | adguard-primary | AdGuard Primary DNS |
-|| skulldorom.xyz | grafana | Grafana monitoring |
-|| skulldorom.xyz | proxmox | Proxmox node (excluded) |
+|| example.net | dns-primary | DNS Primary DNS |
+|| example.net | grafana | Grafana monitoring |
+|| example.net | proxmox | Proxmox node (excluded) |
 """
 
 _TEST_SECRET = "test_secret_value"
@@ -226,7 +226,7 @@ class TestExtractWikiSubdomains:
         page = tmp_path / "infrastructure-domains.md"
         page.write_text(DOMAINS_MD_CONTENT)
         subs = _extract_wiki_subdomains(page)
-        assert "adguard-primary" in subs
+        assert "dns-primary" in subs
         assert "grafana" in subs
 
     def test_excludes_proxmox(self, tmp_path):
@@ -241,13 +241,13 @@ class TestExtractWikiSubdomains:
 
     def test_excludes_pbs(self, tmp_path):
         page = tmp_path / "domains.md"
-        page.write_text("|| skulldorom.xyz | pbs | Proxmox Backup Server |\n")
+        page.write_text("|| example.net | pbs | Proxmox Backup Server |\n")
         subs = _extract_wiki_subdomains(page)
         assert "pbs" not in subs
 
     def test_excludes_cloudflare(self, tmp_path):
         page = tmp_path / "domains.md"
-        page.write_text("|| skulldorom.xyz | cloudflare | CF Tunnel |\n")
+        page.write_text("|| example.net | cloudflare | CF Tunnel |\n")
         subs = _extract_wiki_subdomains(page)
         assert "cloudflare" not in subs
 
@@ -257,11 +257,11 @@ def test_extract_wiki_subdomains_uses_named_reordered_column(tmp_path):
     page.write_text(
         "| Service | Notes | Subdomain | Domain |\n"
         "|---|---|---|---|\n"
-        "| DNS | primary | adguard-primary | example.com |\n"
+        "| DNS | primary | dns-primary | example.com |\n"
         "| Backup | excluded | pbs | example.com |\n"
     )
 
-    assert _extract_wiki_subdomains(page) == {"adguard-primary"}
+    assert _extract_wiki_subdomains(page) == {"dns-primary"}
 
 class TestNpmSync:
     def _make_client(self, proxy_hosts=None):
@@ -275,8 +275,8 @@ class TestNpmSync:
         page = tmp_path / "guides" / "infrastructure-domains.md"
         page.parent.mkdir(parents=True)
         page.write_text(
-            "|| skulldorom.xyz | adguard-primary | AdGuard |\n"
-            "|| skulldorom.xyz | grafana | Grafana |\n"
+            "|| example.net | dns-primary | DNS Filter |\n"
+            "|| example.net | grafana | Grafana |\n"
         )
         client = self._make_client()
         result = npm_sync(client, tmp_path)
@@ -292,24 +292,24 @@ class TestNpmSync:
         page = tmp_path / "guides" / "infrastructure-domains.md"
         page.parent.mkdir(parents=True)
         page.write_text(
-            "|| skulldorom.xyz | grafana | Grafana |\n"
+            "|| example.net | grafana | Grafana |\n"
         )
-        client = self._make_client()  # has adguard-primary + grafana
+        client = self._make_client()  # has dns-primary + grafana
         result = npm_sync(client, tmp_path)
 
         assert len(result["unmatched_npm"]) == 1
-        assert result["unmatched_npm"][0]["domain_names"] == ["adguard-primary.skulldorom.xyz"]
+        assert result["unmatched_npm"][0]["domain_names"] == ["dns-primary.example.net"]
 
     def test_missing_npm(self, tmp_path):
         """Wiki has a subdomain not in NPM."""
         page = tmp_path / "guides" / "infrastructure-domains.md"
         page.parent.mkdir(parents=True)
         page.write_text(
-            "|| skulldorom.xyz | adguard-primary | AdGuard |\n"
-            "|| skulldorom.xyz | grafana | Grafana |\n"
-            "|| skulldorom.xyz | jellyfin | Jellyfin |\n"
+            "|| example.net | dns-primary | DNS Filter |\n"
+            "|| example.net | grafana | Grafana |\n"
+            "|| example.net | jellyfin | Jellyfin |\n"
         )
-        client = self._make_client()  # NPM only has adguard-primary + grafana
+        client = self._make_client()  # NPM only has dns-primary + grafana
         result = npm_sync(client, tmp_path)
 
         assert "jellyfin" in result["missing_npm"]
@@ -318,8 +318,8 @@ class TestNpmSync:
         """Proxy host with ssl_forced=False is flagged."""
         no_ssl_host = {
             "id": 30,
-            "domain_names": ["grafana.skulldorom.xyz"],
-            "forward_host": "192.168.0.10",
+            "domain_names": ["grafana.example.net"],
+            "forward_host": "198.51.100.10",
             "forward_port": 3000,
             "forward_scheme": "http",
             "ssl_forced": False,
@@ -327,19 +327,19 @@ class TestNpmSync:
         }
         page = tmp_path / "guides" / "infrastructure-domains.md"
         page.parent.mkdir(parents=True)
-        page.write_text("|| skulldorom.xyz | grafana | Grafana |\n")
+        page.write_text("|| example.net | grafana | Grafana |\n")
         client = self._make_client(proxy_hosts=[no_ssl_host])
         result = npm_sync(client, tmp_path)
 
         assert len(result["ssl_drift"]) == 1
-        assert result["ssl_drift"][0]["domain_names"] == ["grafana.skulldorom.xyz"]
+        assert result["ssl_drift"][0]["domain_names"] == ["grafana.example.net"]
 
     def test_config_drift_disabled_host(self, tmp_path):
         """Disabled proxy host matched to wiki is flagged as config drift."""
         disabled_host = {
             "id": 31,
-            "domain_names": ["grafana.skulldorom.xyz"],
-            "forward_host": "192.168.0.10",
+            "domain_names": ["grafana.example.net"],
+            "forward_host": "198.51.100.10",
             "forward_port": 3000,
             "forward_scheme": "http",
             "ssl_forced": True,
@@ -347,7 +347,7 @@ class TestNpmSync:
         }
         page = tmp_path / "guides" / "infrastructure-domains.md"
         page.parent.mkdir(parents=True)
-        page.write_text("|| skulldorom.xyz | grafana | Grafana |\n")
+        page.write_text("|| example.net | grafana | Grafana |\n")
         client = self._make_client(proxy_hosts=[disabled_host])
         result = npm_sync(client, tmp_path)
 
@@ -375,13 +375,13 @@ class TestNpmSync:
         """Caller can override the relative path to the domains page."""
         page = tmp_path / "custom" / "domains.md"
         page.parent.mkdir(parents=True)
-        page.write_text("|| skulldorom.xyz | adguard-primary | x |\n")
+        page.write_text("|| example.net | dns-primary | x |\n")
         client = self._make_client(
             proxy_hosts=[
                 {
                     "id": 1,
-                    "domain_names": ["adguard-primary.skulldorom.xyz"],
-                    "forward_host": "192.168.0.2",
+                    "domain_names": ["dns-primary.example.net"],
+                    "forward_host": "198.51.100.2",
                     "forward_port": 80,
                     "ssl_forced": True,
                     "enabled": True,

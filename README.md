@@ -5,7 +5,11 @@ homelab wiki from [Pulse](https://pulse.zingerlabs.com/) monitoring API data,
 with optional [NGINX Proxy Manager](https://nginxproxymanager.com/) (NPM)
 integration for domain/proxy-host cross-referencing.
 
-![Version](https://img.shields.io/badge/version-3.1.2-blue)
+![Version](https://img.shields.io/badge/version-1.0.0-blue)
+
+## Requirements
+
+- Python 3.11, 3.12, or 3.13
 
 ## Install
 
@@ -82,8 +86,8 @@ Commands are **case-insensitive** and match on prefix/keyword, not exact string.
 /update-infrastructure create "My Service"
 
 # Fix an IP mismatch (dry-run first)
-/update-infrastructure fix-ip "AdGuard Primary" --dry-run
-/update-infrastructure fix-ip "AdGuard Primary"
+/update-infrastructure fix-ip "DNS Primary" --dry-run
+/update-infrastructure fix-ip "DNS Primary"
 
 # Fix every IP-drift at once
 /update-infrastructure fix all
@@ -134,7 +138,7 @@ For topology rendering, these frontmatter fields are read:
 ```yaml
 ---
 title: My-Container
-ip: 10.0.0.10
+ip: 192.0.2.10
 os: Debian 12
 host: my-host        # parent host slug (makes this a child node)
 type: container      # maps to category: infrastructure | networking | container | device
@@ -172,7 +176,7 @@ Each page should have YAML frontmatter such as:
 ```yaml
 ---
 host: my-service
-ip: 10.0.0.2
+ip: 192.0.2.2
 os: Alpine
 services: [dns, adblock]
 status: active
@@ -204,7 +208,7 @@ The cross-reference output is filtered to surface only actionable findings:
   this for real hardware (IR blasters, routers), external services (VPN),
   and other legitimate wiki pages that will never appear in Pulse.
 - **Unmapped server aliases** include fuzzy suggestions — e.g.
-  `server: nas` → "did you mean `my-nas`?".
+  `server: nas` → "did you mean `storage-node`?".
 
 Extend the generic-name list via `infrastructure-plugin.generic_infra_names`
 in `config.yaml`.  Use `suppress_orphan_check` to whitelist entity slugs
@@ -238,13 +242,13 @@ infrastructure-plugin:
     - my-custom-platform
     - another-stack-name
   server_aliases:
-    beast: beast-proxmox
-    nas: my-nas-1
+    compute-host: compute-node-a
+    nas: storage-node-a
   suppress_entity_check:
     - "Some Generic Service"
   suppress_orphan_check:
     - broadlink-ir
-    - the-beast
+    - compute-node-a
 ```
 
 ### Configuration keys

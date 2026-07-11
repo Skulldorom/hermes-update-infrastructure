@@ -5,13 +5,13 @@ from update_infrastructure.parser_wiki import parse_entity_pages
 
 def test_parse_entity_pages_normalises_frontmatter(tmp_path):
     (tmp_path / "host.md").write_text(
-        "---\ntitle: Host One\nip: 10.0.0.2\ntype: proxmox\nservices: dns, backups\n---\n"
+        "---\ntitle: Host One\nip: 203.0.113.2\ntype: proxmox\nservices: dns, backups\n---\n"
     )
 
     machines = parse_entity_pages(str(tmp_path))["machines"]
 
     assert machines == [{
-        "name": "Host One", "slug": "host", "ip": "10.0.0.2", "host": "",
+        "name": "Host One", "slug": "host", "ip": "203.0.113.2", "host": "",
         "category": "infrastructure", "os": "", "services": ["dns", "backups"],
         "tailscale_ip": "",
     }]
@@ -26,34 +26,34 @@ type: server
 ## Containers
 | Name | Purpose |
 |---|---|
-| [[Dozzle]] | [[Logs]] |
+| [[Log Viewer]] | [[Logs]] |
 """
-    (tmp_path / "alpha.md").write_text(body.format(title="Alpha", ip="10.0.0.1"))
-    (tmp_path / "beta.md").write_text(body.format(title="Beta", ip="10.0.0.2"))
+    (tmp_path / "alpha.md").write_text(body.format(title="Alpha", ip="203.0.113.1"))
+    (tmp_path / "beta.md").write_text(body.format(title="Beta", ip="203.0.113.2"))
 
     machines = parse_entity_pages(str(tmp_path))["machines"]
     children = [machine for machine in machines if machine["category"] == "container"]
 
-    assert [child["slug"] for child in children] == ["dozzle", "dozzle-beta"]
+    assert [child["slug"] for child in children] == ["log-viewer", "log-viewer-beta"]
     assert children[0]["host"] == "alpha"
     assert children[0]["services"] == ["Logs"]
-    assert children[1]["name"] == "Dozzle (beta)"
+    assert children[1]["name"] == "Log Viewer (beta)"
 
 
 def test_parse_vm_table_extracts_ip_and_service(tmp_path):
     (tmp_path / "host.md").write_text("""---
 title: Host
-ip: 10.0.0.1
+ip: 203.0.113.1
 type: server
 ---
 ## VMs / LXCs
 | VMID | IP | Service |
 |---|---|---|
-| 101 | 10.0.0.20 | [[AdGuard|DNS]] |
+| 101 | 203.0.113.20 | [[DNS Filter|DNS]] |
 """)
 
     child = parse_entity_pages(str(tmp_path))["machines"][1]
 
     assert child["slug"] == "101"
-    assert child["ip"] == "10.0.0.20"
-    assert child["services"] == ["AdGuard"]
+    assert child["ip"] == "203.0.113.20"
+    assert child["services"] == ["DNS Filter"]
