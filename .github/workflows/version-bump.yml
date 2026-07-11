@@ -77,6 +77,12 @@ jobs:
           sed -i "s/^version:.*/version: $NEW_VERSION/" plugin.yaml
           echo "Updated plugin.yaml to version $NEW_VERSION"
 
+      - name: Update package metadata
+        run: |
+          NEW_VERSION="${{ steps.new_version.outputs.new }}"
+          sed -i "s/^version = \".*\"/version = \"$NEW_VERSION\"/" pyproject.toml
+          echo "Updated pyproject.toml to version $NEW_VERSION"
+
       - name: Update README.md version badge
         run: |
           NEW_VERSION="${{ steps.new_version.outputs.new }}"
