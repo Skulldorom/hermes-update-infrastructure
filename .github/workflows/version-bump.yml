@@ -20,10 +20,14 @@ on:
           - minor
           - patch
 
+concurrency:
+  group: version-bump-main
+  cancel-in-progress: false
+
 jobs:
   bump-version:
     if: >-
-      ${{ github.event_name == 'workflow_dispatch' ||
+      ${{ (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
           github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     permissions:
@@ -33,8 +37,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || 'main' }}
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify tested commit is still current
+        if: github.event_name == 'workflow_run'
+        run: |
+          git fetch origin main
+          if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
+            echo "Refusing to bump: main has advanced since this commit was tested."
+            exit 1
+          fi
 
       - name: Read current version
         id: read_version
@@ -93,6 +107,25 @@ jobs:
           NEW_VERSION="${{ steps.new_version.outputs.new }}"
           sed -i "s|!\[Version\](https://img\.shields\.io/badge/version-[^-]*-blue)|![Version](https://img.shields.io/badge/version-$NEW_VERSION-blue)|" README.md
           echo "Updated README.md badge to version $NEW_VERSION"
+
+      - name: Verify version metadata
+        run: |
+          NEW_VERSION="${{ steps.new_version.outputs.new }}"
+          PLUGIN_VERSION=$(sed -n 's/^version: *//p' plugin.yaml)
+          PACKAGE_VERSION=$(sed -n 's/^version = "\([^"]*\)"/\1/p' pyproject.toml)
+
+          if [ "$PLUGIN_VERSION" != "$NEW_VERSION" ]; then
+            echo "plugin.yaml version is '$PLUGIN_VERSION', expected '$NEW_VERSION'."
+            exit 1
+          fi
+          if [ "$PACKAGE_VERSION" != "$NEW_VERSION" ]; then
+            echo "pyproject.toml version is '$PACKAGE_VERSION', expected '$NEW_VERSION'."
+            exit 1
+          fi
+          if ! grep -Fq "![Version](https://img.shields.io/badge/version-$NEW_VERSION-blue)" README.md; then
+            echo "README.md version badge was not updated to '$NEW_VERSION'."
+            exit 1
+          fi
 
       - name: Commit new version
         run: |
