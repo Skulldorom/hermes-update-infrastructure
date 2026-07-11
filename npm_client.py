@@ -82,8 +82,9 @@ class NPMClient:
             timeout=self._timeout,
         )
         response.raise_for_status()
-        self._token = response.json()["token"]
-        return self._token
+        token = str(response.json()["token"])
+        self._token = token
+        return token
 
     def _auth_headers(self) -> dict[str, str]:
         """Return Authorization headers, fetching a token if needed."""
@@ -124,16 +125,6 @@ class NPMClient:
 # Wiki subdomain extraction
 # ---------------------------------------------------------------------------
 
-# Matches table rows of the form:
-#   || example.com | subdomain | ...
-# or (pipe-table rows with a subdomain column)
-#   | example.com | subdomain | ...
-# The domain column is matched generically — any domain name is accepted.
-_SUBDOMAIN_ROW_RE = re.compile(
-    r"^\|+\s*[a-z0-9.-]+\s*\|\s*([a-z0-9-]+)\s*\|",
-    re.IGNORECASE | re.MULTILINE,
-)
-
 # NPM-managed entries are assumed to be any subdomain that does NOT match
 # these exclusion keywords (Proxmox node names, PBS, raw IP references, etc.)
 _NPM_EXCLUSION_RE = re.compile(
@@ -142,27 +133,46 @@ _NPM_EXCLUSION_RE = re.compile(
 )
 
 
+def _table_cells(line: str) -> list[str]:
+    """Split a Markdown pipe-table row, tolerating one or two leading pipes."""
+    return [cell.strip() for cell in line.strip().strip("|").split("|")]
+
+
 def _extract_wiki_subdomains(domains_page: Path) -> set[str]:
-    """Extract subdomain labels from the wiki ``infrastructure-domains.md`` table.
+    """Extract labels from the named subdomain column of Markdown tables.
 
-    Reads rows of the form ``|| example.com | subdomain | ...`` and
-    returns the set of subdomain labels, excluding entries that belong to
-    Proxmox nodes, PBS, Cloudflare Tunnel, or Tailscale.
-
-    Args:
-        domains_page: Path to the wiki domains markdown file.
-
-    Returns:
-        Set of lowercase subdomain labels (e.g. ``{"adguard-primary", "grafana"}``).
+    Headers are matched by name, so adding or reordering unrelated columns no
+    longer silently changes which value is interpreted as a subdomain.
     """
     if not domains_page.exists():
         return set()
-    text = domains_page.read_text()
+
     subdomains: set[str] = set()
-    for match in _SUBDOMAIN_ROW_RE.finditer(text):
-        label = match.group(1).strip().lower()
-        if label and not _NPM_EXCLUSION_RE.match(label):
+    subdomain_index: int | None = None
+    for line in domains_page.read_text().splitlines():
+        if not line.lstrip().startswith("|"):
+            subdomain_index = None
+            continue
+
+        cells = _table_cells(line)
+        normalised = [re.sub(r"[^a-z0-9]", "", cell.lower()) for cell in cells]
+        if "subdomain" in normalised:
+            subdomain_index = normalised.index("subdomain")
+            continue
+        # Preserve the legacy ``|| domain | subdomain |`` format while new
+        # header-based tables remain resilient to column reordering.
+        row_index = subdomain_index
+        if row_index is None and line.lstrip().startswith("||"):
+            row_index = 1
+        if row_index is None or row_index >= len(cells):
+            continue
+        if all(re.fullmatch(r"[- :]*", cell) for cell in cells):
+            continue
+
+        label = cells[row_index].strip().lower()
+        if re.fullmatch(r"[a-z0-9-]+", label) and not _NPM_EXCLUSION_RE.fullmatch(label):
             subdomains.add(label)
+
     return subdomains
 
 

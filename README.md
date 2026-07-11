@@ -10,7 +10,7 @@ integration for domain/proxy-host cross-referencing.
 ## Install
 
 ```bash
-git clone https://github.com/your-org/hermes-update-infrastructure.git \
+git clone https://github.com/Skulldorom/hermes-update-infrastructure.git \
   ~/.hermes/plugins/update-infrastructure/
 
 hermes plugins enable update-infrastructure
@@ -154,6 +154,7 @@ Category mapping rules:
 | File | Role |
 |------|------|
 | `__init__.py` | Plugin registration, intent parsing, main command handler |
+| `renderer.py` | Human-readable output and agent review prompt rendering |
 | `config.py` | Configuration getters (reads from Hermes `config.yaml`) |
 | `pulse_client.py` | Pulse monitoring API client |
 | `npm_client.py` | NGINX Proxy Manager API client + wiki subdomain sync |

@@ -12,11 +12,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 try:
-    from . import config, parser_wiki
+    from . import config
 except ImportError:  # pragma: no cover - supports direct module loading in tests
     import config  # type: ignore
-    import parser_wiki  # type: ignore
-
 
 def _hash_block(text: str) -> str:
     """Short hash of a text block for change detection."""
@@ -227,7 +225,6 @@ def write_generated_file(output_path: str, data: dict, dry_run: bool = False,
     services = data.get("services", [])
     subdomains = data.get("subdomains", [])
     npm_suggestions = (npm_data or {}).get("suggested_additions", [])
-    npm_sub_count = len(npm_suggestions)
 
     lines = [
         "---",

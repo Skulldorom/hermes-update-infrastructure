@@ -1,6 +1,5 @@
 """Tests for slash command registration and agent handoff behavior."""
 
-import _bootstrap  # noqa: F401 — loads update_infrastructure
 
 import json
 from unittest.mock import patch

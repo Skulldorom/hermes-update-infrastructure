@@ -1,6 +1,5 @@
 """Tests for pulse_client module — IP picking and service list building."""
 
-import _bootstrap  # noqa: F401 — loads update_infrastructure
 
 import pytest
 from unittest.mock import MagicMock, patch

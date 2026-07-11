@@ -1,6 +1,5 @@
 """Tests for cross_reference() in parser.py."""
 
-import _bootstrap  # noqa: F401 — loads update_infrastructure
 
 import pytest
 

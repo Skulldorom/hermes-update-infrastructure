@@ -1,6 +1,5 @@
 """Tests for npm_client module -- NPMClient and npm_sync."""
 
-import _bootstrap  # noqa: F401 -- loads update_infrastructure
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -8,8 +7,8 @@ from pathlib import Path
 
 from update_infrastructure.npm_client import (
     NPMClient,
-    npm_sync,
     _extract_wiki_subdomains,
+    npm_sync,
 )
 
 
@@ -253,9 +252,16 @@ class TestExtractWikiSubdomains:
         assert "cloudflare" not in subs
 
 
-# ---------------------------------------------------------------------------
-# npm_sync tests
-# ---------------------------------------------------------------------------
+def test_extract_wiki_subdomains_uses_named_reordered_column(tmp_path):
+    page = tmp_path / "domains.md"
+    page.write_text(
+        "| Service | Notes | Subdomain | Domain |\n"
+        "|---|---|---|---|\n"
+        "| DNS | primary | adguard-primary | example.com |\n"
+        "| Backup | excluded | pbs | example.com |\n"
+    )
+
+    assert _extract_wiki_subdomains(page) == {"adguard-primary"}
 
 class TestNpmSync:
     def _make_client(self, proxy_hosts=None):

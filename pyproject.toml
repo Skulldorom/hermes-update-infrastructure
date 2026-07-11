@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hermes-update-infrastructure"
+version = "3.0.19"
+description = "Hermes plugin for syncing a homelab wiki from Pulse"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+  "PyYAML>=6.0",
+  "requests>=2.31",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "pyright>=1.1.390",
+  "ruff>=0.9",
+]
+
+[tool.setuptools]
+packages = ["update_infrastructure"]
+package-dir = { update_infrastructure = "." }
+
+[tool.setuptools.package-data]
+update_infrastructure = ["plugin.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+exclude = ["tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]
+
+[tool.pyright]
+include = ["*.py"]
+exclude = ["tests"]
+typeCheckingMode = "basic"
+reportMissingTypeStubs = false

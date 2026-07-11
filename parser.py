@@ -4,7 +4,6 @@ Pulse (rcourtman/Pulse) is the single source of truth for infrastructure data:
 IPs, OS names, node assignments, CT/VM IDs, and real-time status.
 """
 
-import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -230,10 +229,13 @@ def _append_to_pulse_containers(wiki_root: Path, parent_slug: str, container_nam
 
     # Build the updated frontmatter
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    existing_display = [str(c).strip() for c in (
-        fm.get("pulse_containers") if isinstance(fm.get("pulse_containers"), list)
-        else str(fm.get("pulse_containers", "")).split(",")
-    ) if str(c).strip()]
+    raw_containers = fm.get("pulse_containers")
+    container_values = (
+        raw_containers
+        if isinstance(raw_containers, list)
+        else str(raw_containers or "").split(",")
+    )
+    existing_display = [str(c).strip() for c in container_values if str(c).strip()]
     existing_display.append(container_name)
 
     # Find the pulse_containers line and replace, or insert
