@@ -626,5 +626,3 @@ def build_review_prompt(data: dict) -> str:
         )
 
     return "\n".join(lines)
-
-
