@@ -1,11 +1,13 @@
 name: Version Bump
 
 on:
-  push:
+  workflow_run:
+    workflows:
+      - Tests
+    types:
+      - completed
     branches:
       - main
-    paths-ignore:
-      - '.github/**'
   workflow_dispatch:
     inputs:
       bump_type:
@@ -20,6 +22,9 @@ on:
 
 jobs:
   bump-version:
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+          github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -47,7 +52,7 @@ jobs:
           PATCH=$(echo "$VERSION" | cut -d. -f3)
 
           BUMP="${{ github.event.inputs.bump_type }}"
-          # Default to patch on push events
+          # Default to patch when triggered after the test workflow.
           if [ -z "$BUMP" ]; then
             BUMP="patch"
           fi
@@ -94,6 +99,6 @@ jobs:
           NEW_VERSION="${{ steps.new_version.outputs.new }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add plugin.yaml README.md
+          git add plugin.yaml pyproject.toml README.md
           git commit -m "chore: bump version to $NEW_VERSION [skip ci]"
           git push origin HEAD:main
