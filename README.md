@@ -1,6 +1,6 @@
 # hermes-update-infrastructure
 
-Hermes Agent plugin — `/update-infrastructure` slash command. Syncs your
+Hermes Agent plugin — `/update-infrastructure` and `/systems-audit` slash commands. Syncs your
 homelab wiki from [Pulse](https://pulse.zingerlabs.com/) monitoring API data,
 with optional [NGINX Proxy Manager](https://nginxproxymanager.com/) (NPM)
 integration for domain/proxy-host cross-referencing.
@@ -48,6 +48,7 @@ command or extra context:
 /update-infra create "My Service"
 /sync-infra fix all
 /update-infrastructure status
+/systems-audit
 /update-infrastructure help
 ```
 
@@ -74,6 +75,7 @@ Unrecognised text is echoed back with a hint to try `help`.
 | `check "Service Name"` | Deep-check one service across Pulse, entity page, and cross-ref |
 | `cleanup` | List orphaned entity pages with removal instructions |
 | `status` | Return just the cross-reference summary (skips wiki update) |
+| `audit` / `health` / `systems-audit` | Return a read-only Pulse systems audit report |
 | `help` / `--help` / `-h` | Show usage, sub-commands, and configuration keys |
 | *(anything else)* | Echoed as extra context, with hint to try `help` |
 
@@ -97,6 +99,38 @@ Commands are **case-insensitive** and match on prefix/keyword, not exact string.
 
 # Status only (no wiki update)
 /update-infrastructure status
+
+# Read-only systems health audit (also available as /audit or /health)
+/systems-audit
+/update-infrastructure audit
+```
+
+### Systems audit
+
+`/systems-audit` (aliases: `/audit`, `/health`) fetches the full Pulse
+`/api/state` payload and returns a structured markdown health report. It does
+not write to the wiki.
+
+The report includes:
+
+- active Pulse alerts
+- physical disk SMART health, risk level, endurance used, temperature, and
+  power-on hours when Pulse exposes them
+- host RAM/disk pressure for `agent` resources
+- VM/system-container RAM/disk pressure and app-container RAM pressure
+- root `connectionHealth` status
+
+The same report is available through the `systems_audit` infra tool, or through
+`update_infrastructure` with `raw_args="audit"`.
+
+Example weekly cron recipe:
+
+```bash
+cronjob action=create \
+  schedule="every monday at 09:00" \
+  name="Weekly Systems Audit" \
+  prompt="Run /systems-audit and summarise the health report" \
+  deliver="all"
 ```
 
 ### Sync Rules
@@ -158,6 +192,7 @@ Category mapping rules:
 | File | Role |
 |------|------|
 | `__init__.py` | Plugin registration, intent parsing, main command handler |
+| `audit_health.py` | Read-only Pulse systems audit parsing and markdown report rendering |
 | `renderer.py` | Human-readable output and agent review prompt rendering |
 | `config.py` | Configuration getters (reads from Hermes `config.yaml`) |
 | `pulse_client.py` | Pulse monitoring API client |

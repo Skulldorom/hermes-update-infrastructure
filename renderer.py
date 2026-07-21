@@ -256,6 +256,11 @@ def _render_cleanup(result: dict) -> str:
     return "\n".join(lines)
 
 
+def _render_audit(result: dict) -> str:
+    """Render the systems audit report produced by audit_health."""
+    return result.get("report", "⚠️ Systems audit produced no report")
+
+
 def _render_echo(intent: dict) -> str:
     """Render an echo / unrecognised-command intent."""
     text = intent.get("result", {}).get("echoed_text", "")
@@ -285,6 +290,12 @@ def _render_help(result: dict) -> str:
         "",
         "   /update-infrastructure status",
         "      Cross-reference check only (skips wiki update)",
+        "",
+        "   /systems-audit    (aliases: /audit, /health)",
+        "      Read-only Pulse health report: alerts, disks, host/container pressure",
+        "",
+        "   /update-infrastructure audit",
+        "      Same systems audit report through the update-infrastructure command",
         "",
         "   /update-infrastructure create \"Service Name\"",
         "      Scaffold an entities/<slug>.md page with sensible defaults",
@@ -336,6 +347,7 @@ def _render_help(result: dict) -> str:
 
 # Dispatch table: intent_type -> renderer(result_dict) -> human-readable string
 _INTENT_RENDERERS: dict[str, Any] = {
+    "audit": _render_audit,
     "create": _render_create,
     "fix_all": _render_fix_all,
     "fix_ip": _render_fix_ip,

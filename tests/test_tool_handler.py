@@ -204,6 +204,32 @@ class TestToolHandlerJSONShape:
         assert data["intent"]["type"] == "status"
         mu.write_generated_file.assert_not_called()
 
+    def test_audit_intent_fetches_state_and_skips_wiki_writes(self, tmp_wiki):
+        mu = self._make_mock_updater()
+        state = {
+            "resources": [{"type": "agent", "name": "host-alpha"}],
+            "activeAlerts": [],
+            "connectionHealth": {"pulse": "connected"},
+        }
+
+        with patch.dict(os.environ, {"WIKI_PATH": str(tmp_wiki)}), \
+             patch("update_infrastructure.pulse_client.fetch_state", return_value=state) as fetch_state, \
+             patch("update_infrastructure.audit_health.build_health_report", return_value="## Systems Audit — today") as report, \
+             patch("update_infrastructure.updater", mu):
+            data = json.loads(_handle_update_tool("audit"))
+
+        assert data["changed"] is False
+        assert data["source"] == {"resources": 1}
+        assert data["intent"]["type"] == "audit"
+        assert data["intent"]["result"]["report"] == "## Systems Audit — today"
+        fetch_state.assert_called_once_with()
+        report.assert_called_once_with(
+            state["resources"],
+            active_alerts=[],
+            connection_health={"pulse": "connected"},
+        )
+        mu.write_generated_file.assert_not_called()
+
     def test_create_intent(self, tmp_wiki):
         mp = self._make_mock_parser()
         mu = self._make_mock_updater()
