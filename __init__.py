@@ -34,13 +34,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 try:
-    from . import config, parser, parser_wiki, renderer, updater
+    from . import audit_health, config, parser, parser_wiki, pulse_client, renderer, updater
     from . import npm_client as _npm_client
 except ImportError:  # pragma: no cover - supports direct module loading in tests
+    import audit_health  # type: ignore
     import config  # type: ignore
     import npm_client as _npm_client  # type: ignore
     import parser  # type: ignore
     import parser_wiki  # type: ignore
+    import pulse_client  # type: ignore
     import renderer  # type: ignore
     import updater  # type: ignore
 
@@ -56,6 +58,8 @@ logger = logging.getLogger(__name__)
 _INTENT_PATTERNS: list[tuple[re.Pattern, str, int | None]] = [
     # tool -- escape hatch: raw JSON output, no agent summarisation
     (re.compile(r'^tool\b', re.IGNORECASE), "tool", None),
+    # audit / health -- read-only Pulse systems audit
+    (re.compile(r'^(?:audit|health|systems[-\s]?audit)\b', re.IGNORECASE), "audit", None),
     # create / create-entity "Name"  or  create Name
     (re.compile(r'^create(?:-entity)?\s+"([^"]+)"', re.IGNORECASE), "create", 1),
     (re.compile(r'^create(?:-entity)?\s+(.+)', re.IGNORECASE), "create", 1),
@@ -180,6 +184,24 @@ def _handle_update_tool(raw_args: str = "", **kwargs) -> str:
     intent, intent_params = _parse_intent(extra)
 
     try:
+        # --- audit intent: Pulse health report only, no wiki writes ---
+        if intent == "audit":
+            state = pulse_client.fetch_state()
+            resources = state.get("resources", [])
+            report = audit_health.build_health_report(
+                resources,
+                active_alerts=state.get("activeAlerts") or [],
+                connection_health=state.get("connectionHealth") or {},
+            )
+            elapsed = round(time.monotonic() - t_start, 2)
+            return json.dumps({
+                "sync_completed_at": started_at,
+                "elapsed_seconds": elapsed,
+                "changed": False,
+                "source": {"resources": len(resources)},
+                "intent": {"type": "audit", "result": {"report": report}},
+            })
+
         wiki_root = _get_wiki_path()
 
         # --- status intent: cross-ref only, no wiki update ---
@@ -378,6 +400,21 @@ def _handle_update_tool(raw_args: str = "", **kwargs) -> str:
         })
 
 
+def _handle_systems_audit(raw_args: str = "", **kwargs) -> str:
+    """Tool/command handler for the read-only Pulse systems audit report."""
+    raw_result = _handle_update_tool("audit")
+    try:
+        data = json.loads(raw_result)
+    except json.JSONDecodeError:
+        return raw_result
+    if "error" in data:
+        return f"⚠️ Systems audit failed: {data['error']}"
+    return ((data.get("intent") or {}).get("result") or {}).get(
+        "report",
+        "⚠️ Systems audit produced no report",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Review tool handler (always returns a review prompt)
 # ---------------------------------------------------------------------------
@@ -516,6 +553,26 @@ def register(ctx):
         description="Sync + review: returns a structured agent follow-up prompt",
     )
 
+    # ── Systems audit tool (read-only Pulse health report) ──
+    ctx.register_tool(
+        name="systems_audit",
+        toolset="infra",
+        schema={
+            "name": "systems_audit",
+            "description": (
+                "Fetch Pulse /api/state and return a read-only systems health "
+                "report covering active alerts, disk SMART health, host resource "
+                "pressure, container pressure, and connection health."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+            },
+        },
+        handler=_handle_systems_audit,
+        description="Pulse systems audit — disk health, resource pressure, alerts",
+    )
+
     # ── Slash command (backward-compatible convenience) ──
     ctx.register_command(
         "update-infrastructure",
@@ -530,8 +587,15 @@ def register(ctx):
         except Exception:
             pass
 
+    audit_description = "Read-only Pulse systems audit: disk health, resource pressure, alerts"
+    for command in ("systems-audit", "audit", "health"):
+        try:
+            ctx.register_command(command, handler=_handle_systems_audit, description=audit_description)
+        except Exception:
+            pass
+
     logger.info(
         "update-infrastructure plugin registered "
-        "(tools: update_infrastructure, update_infrastructure_review;"
-        " command: /update-infrastructure)"
+        "(tools: update_infrastructure, update_infrastructure_review, systems_audit;"
+        " commands: /update-infrastructure, /systems-audit)"
     )

@@ -95,6 +95,43 @@ def test_aliases_use_same_handoff_behavior():
     assert ctx.injected == [review_prompt, review_prompt]
 
 
+def test_systems_audit_tool_and_command_registered():
+    ctx = _FakeCtx()
+    register(ctx)
+
+    assert "systems_audit" in ctx.tools
+    for command in ("systems-audit", "audit", "health"):
+        assert command in ctx.commands
+
+
+def test_systems_audit_command_returns_report():
+    ctx = _FakeCtx()
+    register(ctx)
+
+    payload = json.dumps({
+        "intent": {"type": "audit", "result": {"report": "## Systems Audit — today"}},
+    })
+
+    with patch("update_infrastructure._handle_update_tool", return_value=payload):
+        result = ctx.commands["systems-audit"]("")
+
+    assert result == "## Systems Audit — today"
+
+
+def test_update_infrastructure_audit_subcommand_renders_report():
+    ctx = _FakeCtx()
+    register(ctx)
+    handler = ctx.commands["update-infrastructure"]
+
+    payload = json.dumps({
+        "intent": {"type": "audit", "result": {"report": "## Systems Audit — today"}},
+    })
+    with patch("update_infrastructure._handle_update_tool", return_value=payload):
+        result = handler("audit")
+
+    assert result == "## Systems Audit — today"
+
+
 class _FakeGatewayCtx:
     """Fake PluginContext that simulates gateway mode: inject_message is
     callable but always returns False (no CLI ref available)."""
