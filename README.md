@@ -9,7 +9,7 @@ integration for domain/proxy-host cross-referencing.
 
 ## Requirements
 
-- Python 3.11, 3.12, or 3.13
+- Python 3.11, 3.12, 3.13, or 3.14
 
 ## Install
 
